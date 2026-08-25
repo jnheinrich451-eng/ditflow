@@ -165,6 +165,15 @@ class WanGuidance(nn.Module):
         self.transformer = self.pipe.transformer
         self.scheduler = self.pipe.scheduler
 
+        # DiTFlow is training-free: the only things ever optimised are the latent
+        # and the RoPE, never a model weight. But params load with
+        # requires_grad=True, so each guidance backward would still populate
+        # .grad on every weight it touches -- ~4.8 GB of dead gradient for the
+        # 1.3B and far worse for the 14B. Freezing changes no guidance gradient
+        # (verified bit-identical); it only stops the waste.
+        self.transformer.requires_grad_(False)
+        self.vae.requires_grad_(False)
+
         if config.enable_gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
         print("video model loaded")

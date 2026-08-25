@@ -157,9 +157,71 @@ def check_chain():
     check("KV injection effective", f"changes output by {delta:.3e}", delta > 1e-5)
 
 
+def check_from_config():
+    """from_pretrained must build the REQUESTED architecture, not the parent's.
+
+    Regression guard: diffusers' ConfigMixin.extract_init_dict selects config
+    keys by reading `inspect.signature(cls.__init__)`. An `__init__(*args,
+    **kwargs)` override exposes no named parameters, so every key is dropped and
+    from_pretrained silently builds WanTransformer3DModel's defaults -- the 14B
+    ones -- producing a shape mismatch against any other checkpoint. Direct
+    construction with explicit kwargs does NOT catch this, which is why it needs
+    its own check.
+    """
+    print("\n=== config extraction (from_pretrained path) ===")
+    import inspect
+
+    from diffusers.models.transformers.transformer_wan import WanTransformer3DModel
+
+    parent = set(inspect.signature(WanTransformer3DModel.__init__).parameters) - {"self"}
+    mine = set(inspect.signature(ControlledWanTransformer.__init__).parameters) - {"self"}
+    check("__init__ exposes the parent's named params",
+          f"{len(parent & mine)}/{len(parent)} kept",
+          parent.issubset(mine))
+
+    model = ControlledWanTransformer.from_config(dict(TINY))
+    inner = TINY["num_attention_heads"] * TINY["attention_head_dim"]
+    got_inner = model.blocks[0].attn1.norm_k.weight.shape[0]
+    check("from_config honours the requested dims",
+          f"num_layers={model.config.num_layers} (want {TINY['num_layers']}), "
+          f"inner={got_inner} (want {inner})",
+          model.config.num_layers == TINY["num_layers"] and got_inner == inner)
+
+
+def check_frozen():
+    """Guidance must not populate .grad on model weights (training-free)."""
+    print("\n=== weights stay frozen ===")
+    torch.manual_seed(0)
+    model = ControlledWanTransformer(**TINY).eval()
+    model.requires_grad_(False)
+    for i in range(len(model.blocks)):
+        model.blocks[i].attn1.set_processor(WanInjectionProcessor(f"block_{i}_attn1_processor"))
+    model.blocks[2] = WanModuleWithGuidance(model.blocks[2], 8, 10, 2, "block_2", 3)
+    proc = model.blocks[2].attn1.processor
+
+    lat = torch.randn(1, TINY["in_channels"], 3, 8, 10)
+    txt = torch.randn(1, 12, TINY["text_dim"])
+    ts = torch.tensor([0])
+    proc.copy_kv = True
+    model.stop_after_block = 2
+    model(hidden_states=lat, timestep=ts, encoder_hidden_states=txt, return_dict=False)
+    target = compute_motion_flow(proc.query.detach(), proc.key.detach(),
+                                 h=4, w=5, nframes=3, temp=2.0, argmax=True)
+
+    x = lat.clone().requires_grad_(True)
+    proc.clear()
+    model(hidden_states=x, timestep=ts, encoder_hidden_states=txt, return_dict=False)
+    amf = compute_motion_flow(proc.query, proc.key, h=4, w=5, nframes=3, temp=2.0)
+    F.mse_loss(amf, target.to(amf.dtype)).backward()
+
+    leaked = sum(1 for p in model.parameters() if p.grad is not None)
+    check("no weight gradients after guidance backward", f"{leaked} params hold .grad", leaked == 0)
+    check("guidance still reaches the latent", f"|grad| = {x.grad.abs().sum():.4e}", x.grad.abs().sum() > 0)
+
+
 def main():
     print(f"torch {torch.__version__}")
-    for fn in (check_amf, check_chain):
+    for fn in (check_amf, check_chain, check_from_config, check_frozen):
         try:
             fn()
         except Exception:

@@ -33,16 +33,22 @@ from diffusers.utils import USE_PEFT_BACKEND, scale_lora_layers, unscale_lora_la
 
 
 class ControlledWanTransformer(WanTransformer3DModel):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # Populated by the Guidance object once the latent shape is known.
-        self.init_rope: Optional[torch.Tensor] = None
-        self.trainable_rope: Optional[torch.Tensor] = None
-
-        # Block index to stop after during guidance passes (None = full forward).
-        self.stop_after_block: Optional[int] = None
-        self._checked_rope_processors = False
+    # NOTE: deliberately NO __init__ override.
+    #
+    # diffusers' ConfigMixin.extract_init_dict picks which config keys to pass to
+    # the constructor by reading `inspect.signature(cls.__init__)`. An override
+    # declared as (*args, **kwargs) exposes no named parameters, so EVERY config
+    # key gets dropped and from_pretrained silently builds the model from
+    # WanTransformer3DModel's own defaults -- which are the 14B ones. Loading a
+    # 1.3B checkpoint into that shape then dies with:
+    #     blocks.0.attn1.norm_k.weight expected [5120], got [1536]
+    # Class-level defaults avoid the override entirely; assigning to an instance
+    # shadows them as usual.
+    init_rope: Optional[torch.Tensor] = None
+    trainable_rope: Optional[torch.Tensor] = None
+    # Block index to stop after during guidance passes (None = full forward).
+    stop_after_block: Optional[int] = None
+    _checked_rope_processors: bool = False
 
     # ------------------------------------------------------------------ #
     def default_rope(self, hidden_states: torch.Tensor) -> torch.Tensor:
