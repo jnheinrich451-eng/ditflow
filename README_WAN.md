@@ -39,6 +39,11 @@ before trusting a sweep; if it fails, nothing downstream is trustworthy.
 
 ## Run
 
+The bundled `assets/*.mp4` are **24 frames at 720x480**, so `num_frames` must be
+a 4k+1 value <= 24. The config defaults to 21 (-> 6 latent frames, the same
+working point DiTFlow used on CogVideoX). A longer reference clip lifts that
+ceiling: 33 -> 9 latent frames, 81 -> 21.
+
 ```bash
 # DiTFlow (-z_t): optimise the latent  -- the paper's headline setting
 python motion_guidance_wan.py \

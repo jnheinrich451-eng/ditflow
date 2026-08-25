@@ -30,7 +30,12 @@ scheduler: unipc            # unipc | flowmatch
 flow_shift: 3.0             # 3.0 for 480P, 5.0 for 720P
 height: 480
 width: 832                  # Wan2.1 480P native aspect
-num_frames: 33              # Must be 4k+1. 33 -> 9 latent frames.
+num_frames: 21              # Must be 4k+1, and must not exceed the reference
+                            # video's frame count. The bundled assets/*.mp4 are
+                            # 24 frames, so 21 is the largest legal value for
+                            # them. 21 -> 6 latent frames, which is exactly the
+                            # working point DiTFlow used on CogVideoX.
+                            # Longer reference clips: 33 -> 9, 81 -> 21.
 
 # --- Misc -----------------------------------------------------------------
 enable_gradient_checkpointing: True
