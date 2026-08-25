@@ -43,8 +43,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from PIL import Image
-from torchvision.io import read_video, write_video
-from torchvision.transforms import ToPILImage
 from tqdm import tqdm
 from transformers import logging
 
@@ -78,8 +76,34 @@ def clean_memory():
     gc.collect()
 
 
-def save_video(video, path, fps=16):
-    write_video(path, video, fps=fps, video_codec="libx264", options={"crf": "17", "preset": "slow"})
+def read_video_frames(path):
+    """Decode a video to a list of HxWx3 uint8 arrays.
+
+    Not torchvision: `torchvision.io.read_video` was deprecated and removed in
+    recent releases (the video API moved out to torchcodec), so importing it
+    breaks on current Colab images. imageio + imageio-ffmpeg are already
+    dependencies and are stable across versions.
+    """
+    try:
+        import imageio.v3 as iio
+
+        return [np.asarray(frame) for frame in iio.imiter(path, plugin="FFMPEG")]
+    except Exception:
+        reader = imageio.get_reader(path)
+        try:
+            return [np.asarray(frame) for frame in reader]
+        finally:
+            reader.close()
+
+
+def save_video(frames, path, fps=16):
+    frames = [np.asarray(f, dtype=np.uint8) for f in frames]
+    try:
+        imageio.mimwrite(path, frames, fps=fps, codec="libx264",
+                         ffmpeg_params=["-crf", "17", "-preset", "slow"])
+    except TypeError:
+        # Older/newer imageio plugins vary on which kwargs they accept.
+        imageio.mimwrite(path, frames, fps=fps)
 
 
 def get_timesteps(timesteps, guidance_timestep_range, skip_timesteps=1):
@@ -311,8 +335,10 @@ class WanGuidance(nn.Module):
         data_path = self.config.video_path
 
         if data_path.endswith(".mp4"):
-            video = read_video(data_path, pts_unit="sec")[0].permute(0, 3, 1, 2).cuda() / 255
-            video = [ToPILImage()(video[i]).resize(self.resolution) for i in range(video.shape[0])]
+            video = [
+                Image.fromarray(frame).convert("RGB").resize(self.resolution)
+                for frame in read_video_frames(data_path)
+            ]
         else:
             images = list(Path(data_path).glob("*.png")) + list(Path(data_path).glob("*.jpg"))
             images = sorted(images, key=lambda x: int(x.stem.split("f")[-1]))
