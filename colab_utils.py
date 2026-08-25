@@ -72,8 +72,33 @@ def show_run(output_dir="results_wan", width=420):
     if reference is None and not generated:
         return HTML(f"<pre>no videos in {output_dir}/ -- did the run finish?</pre>")
     paths = ([reference] if reference else []) + generated
-    labels = (["reference"] if reference else []) + [p.stem[:40] for p in generated]
-    return show_videos(paths, labels, width)
+    # Output videos accumulate: the filename derives from the prompt, so each new
+    # prompt adds a file, while original.mp4 is OVERWRITTEN every run. Without
+    # timestamps it is easy to compare this run's reference against a previous
+    # run's output and conclude the motion transfer failed.
+    import time
+    ref_mtime = reference.stat().st_mtime if reference else 0
+    labels = ([f"reference ({time.strftime('%H:%M:%S', time.localtime(ref_mtime))})"] if reference else [])
+    stale = []
+    for p in generated:
+        age = ref_mtime - p.stat().st_mtime
+        tag = time.strftime("%H:%M:%S", time.localtime(p.stat().st_mtime))
+        if age > 60:
+            stale.append(p.name)
+            labels.append(f"⚠ STALE — {p.stem[:34]} ({tag})")
+        else:
+            labels.append(f"{p.stem[:40]} ({tag})")
+
+    html = show_videos(paths, labels, width)
+    if stale:
+        from IPython.display import HTML
+        warn = ("<p style=\"font:13px system-ui;color:#c00;margin-top:8px\">"
+                f"{len(stale)} video(s) predate this run’s reference: {', '.join(stale)}.<br>"
+                "They are from EARLIER runs — original.mp4 is overwritten each time, "
+                "so they are not paired with the reference shown. "
+                "Use a fresh --output_path per run.</p>")
+        return HTML(html.data + warn)
+    return html
 
 
 def summarize_run(output_dir="results_wan"):
