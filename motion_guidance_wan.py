@@ -712,6 +712,12 @@ def main():
     parser.add_argument("--flow_min_conf", type=float, default=None,
                         help="Drop reference AMF rows with peak softmax prob below this")
     parser.add_argument("--flow_loss", type=str, default=None, choices=["mse", "huber"])
+    parser.add_argument("--no_threshloss", action="store_true",
+                        help="Score the WHOLE reference AMF, including its zero-displacement "
+                             "entries. threshloss=True (the upstream default) drops those, which "
+                             "for a static-camera reference discards the entire background and "
+                             "leaves camera drift completely unpenalised.")
+    parser.add_argument("--guidance_scale", type=float, default=None)
     parser.add_argument("--lr", type=float, nargs=2, default=None, metavar=("HI", "LO"))
     parser.add_argument("--optimization_steps", type=int, default=None)
     parser.add_argument("--guidance_timestep_range", type=int, nargs=2, default=None, metavar=("MAX", "MIN"))
@@ -753,6 +759,7 @@ def main():
         ("flow_max_disp", opt.flow_max_disp),
         ("flow_min_conf", opt.flow_min_conf),
         ("flow_loss", opt.flow_loss),
+        ("guidance_scale", opt.guidance_scale),
         ("lr", list(opt.lr) if opt.lr else None),
         ("optimization_steps", opt.optimization_steps),
         ("guidance_timestep_range", list(opt.guidance_timestep_range) if opt.guidance_timestep_range else None),
@@ -761,6 +768,8 @@ def main():
             overrides[key] = value
     if opt.low_vram:
         overrides["enable_model_cpu_offload"] = True
+    if opt.no_threshloss:
+        overrides["threshloss"] = False
     config = OmegaConf.merge(config, overrides)
 
     block_key = "guidance_blocks_1_3b" if opt.model == "1.3b" else "guidance_blocks_14b"

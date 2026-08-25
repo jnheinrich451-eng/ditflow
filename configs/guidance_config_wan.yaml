@@ -17,7 +17,17 @@ injection_blocks: [0]
 motion_temp: 2              # Softmax sharpening on attention logits.
                             # Wan applies RMSNorm to q/k (qk_norm=rms_norm_across_heads),
                             # so logit scale differs from CogVideoX -- retune this first.
-threshloss: True            # Only score where reference AMF > 0
+threshloss: True            # Score ONLY where the reference AMF is non-zero.
+                            # CLIP-DEPENDENT, and the upstream default assumes a
+                            # MOVING camera. Zero-displacement entries are the
+                            # static background, so dropping them removes any
+                            # penalty on camera drift: with a static-camera
+                            # reference the loss becomes literally invariant to
+                            # what the generated background does, and the model
+                            # is free to dolly/zoom. Panning reference (bmx) ->
+                            # ~95% of entries survive, fine. Static reference
+                            # (lucia) -> ~8% survive and the camera is
+                            # unconstrained. Use --no_threshloss for those.
 argmax_motion_flow: True    # Argmax the reference motion flow
 
 # Reference-AMF outlier rejection. Defaults are OFF (null/mse), which reproduces
