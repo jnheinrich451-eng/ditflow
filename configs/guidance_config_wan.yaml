@@ -19,6 +19,26 @@ motion_temp: 2              # Softmax sharpening on attention logits.
                             # so logit scale differs from CogVideoX -- retune this first.
 threshloss: True            # Only score where reference AMF > 0
 argmax_motion_flow: True    # Argmax the reference motion flow
+
+# Reference-AMF outlier rejection. Defaults are OFF (null/mse), which reproduces
+# upstream DiTFlow exactly -- turn them on to A/B against it.
+#
+# argmax over ~1500 candidates has no fallback when a patch has NO true match
+# (occluded by a foreground object, or flat/repeating texture): it picks
+# essentially at random. Measured on a 30x52 grid such a patch yields ~22 patches
+# of displacement vs ~6 for genuine motion, and threshloss keeps it because the
+# value is merely non-zero. Under MSE it then carries ~14x the weight of a real
+# correspondence, which shows up as sudden global camera lurches on frames where
+# an occluder sweeps through.
+flow_max_disp: null         # drop reference displacements above N PATCH units.
+                            # On a 30x52 grid ~10 is a third of the frame; no
+                            # real inter-frame motion is that large. Try 8-12.
+flow_min_conf: null         # drop rows whose peak softmax prob is below this,
+                            # i.e. the correspondence is undetermined. Try
+                            # 0.01-0.05; scale-dependent, so read the "keeps N%"
+                            # line each run prints.
+flow_loss: mse              # mse | huber
+huber_delta: 2.0            # patch units; linear beyond this
 checkpoint_amf: auto        # auto | true | false -- recompute frame-pair blocks in
                             # backward. 'auto' enables above 7 latent frames.
 softmax_fp32: True          # Softmax AMF in fp32 (reference does it in bf16)

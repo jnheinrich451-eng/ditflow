@@ -61,8 +61,15 @@ def _pair_flow(
     argmax: bool,
     w: int,
     softmax_fp32: bool,
+    return_confidence: bool = False,
 ) -> torch.Tensor:
-    """Displacement field from source frame i to target frame j -> (hw, 2)."""
+    """Displacement field from source frame i to target frame j -> (hw, 2).
+
+    With `return_confidence`, also returns the peak softmax probability per
+    source patch, (hw,). That is a direct measure of how well-determined the
+    correspondence is: a diffuse attention row means the patch has no real match
+    (occluded, or flat/repeating texture) and its argmax displacement is noise.
+    """
     logits = (q_i @ k_j.transpose(-1, -2)) * scale
 
     if argmax:
@@ -70,7 +77,11 @@ def _pair_flow(
         matches = logits.argmax(dim=-1)
         dx = (matches % w).to(x_coords.dtype) - x_coords
         dy = torch.div(matches, w, rounding_mode="floor").to(y_coords.dtype) - y_coords
-        return torch.stack((dx, dy), dim=-1)
+        flow = torch.stack((dx, dy), dim=-1)
+        if return_confidence:
+            probs = F.softmax(logits.float() * temp, dim=-1)
+            return flow, probs.max(dim=-1).values.to(x_coords.dtype)
+        return flow
 
     attn = logits.float() if softmax_fp32 else logits
     attn = F.softmax(attn * temp, dim=-1)
@@ -80,7 +91,10 @@ def _pair_flow(
     # is the expected displacement.
     dx = attn @ x_coords - x_coords
     dy = attn @ y_coords - y_coords
-    return torch.stack((dx, dy), dim=-1)
+    flow = torch.stack((dx, dy), dim=-1)
+    if return_confidence:
+        return flow, attn.max(dim=-1).values
+    return flow
 
 
 def compute_motion_flow(
@@ -94,6 +108,7 @@ def compute_motion_flow(
     checkpoint_pairs: bool = False,
     softmax_fp32: bool = True,
     head_dim: Optional[int] = None,
+    return_confidence: bool = False,
 ) -> torch.Tensor:
     """Compute Attention Motion Flow (AMF) -> (nframes^2, h*w, 2).
 
@@ -138,13 +153,13 @@ def compute_motion_flow(
     x_coords = xx.flatten()
     y_coords = yy.flatten()
 
-    flows = []
+    flows, confidences = [], []
     for frame_i in range(nframes):
         q_i = q_frames[frame_i]
         for frame_j in range(nframes):
             k_j = k_frames[frame_j]
             if checkpoint_pairs and not argmax and torch.is_grad_enabled():
-                flow = torch.utils.checkpoint.checkpoint(
+                out = torch.utils.checkpoint.checkpoint(
                     _pair_flow,
                     q_i,
                     k_j,
@@ -155,10 +170,52 @@ def compute_motion_flow(
                     argmax,
                     w,
                     softmax_fp32,
+                    return_confidence,
                     use_reentrant=False,
                 )
             else:
-                flow = _pair_flow(q_i, k_j, x_coords, y_coords, scale, temp, argmax, w, softmax_fp32)
-            flows.append(flow)
+                out = _pair_flow(q_i, k_j, x_coords, y_coords, scale, temp, argmax, w,
+                                 softmax_fp32, return_confidence)
+            if return_confidence:
+                flows.append(out[0])
+                confidences.append(out[1])
+            else:
+                flows.append(out)
 
-    return torch.stack(flows, dim=0)
+    flow = torch.stack(flows, dim=0)
+    if return_confidence:
+        return flow, torch.stack(confidences, dim=0)
+    return flow
+
+
+def amf_validity_mask(
+    flow: torch.Tensor,
+    confidence: Optional[torch.Tensor] = None,
+    max_disp: Optional[float] = None,
+    min_conf: Optional[float] = None,
+    require_nonzero: bool = True,
+) -> torch.Tensor:
+    """Which reference-AMF entries are worth scoring -> bool (nframes^2, hw).
+
+    `require_nonzero` alone reproduces upstream `threshloss`. That filter only
+    removes displacements of EXACTLY zero, so it keeps every argmax failure --
+    and an argmax over ~1500 candidates with no true match lands essentially at
+    random, producing displacements far larger than any real motion. Under MSE
+    those dominate: measured on a 30x52 grid, an ambiguous patch averages ~22
+    patches of displacement versus ~6 for genuine motion, so it carries ~14x the
+    weight of a real correspondence.
+
+    Two optional filters target that directly:
+      max_disp  drop displacements above this many PATCH units -- no real
+                inter-frame motion crosses a third of the frame
+      min_conf  drop rows whose peak softmax probability is below this -- a
+                diffuse row means the patch has no determinate match at all
+    """
+    mask = torch.ones(flow.shape[:-1], dtype=torch.bool, device=flow.device)
+    if require_nonzero:
+        mask &= torch.norm(flow, dim=-1) > 0
+    if max_disp is not None:
+        mask &= torch.norm(flow, dim=-1) <= max_disp
+    if min_conf is not None and confidence is not None:
+        mask &= confidence >= min_conf
+    return mask

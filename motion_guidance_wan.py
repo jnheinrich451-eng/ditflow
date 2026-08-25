@@ -49,7 +49,7 @@ from transformers import logging
 from diffusers import AutoencoderKLWan, FlowMatchEulerDiscreteScheduler, UniPCMultistepScheduler, WanPipeline
 from diffusers.utils import export_to_video
 
-from guidance_utils.wan_motion_flow_utils import compute_motion_flow
+from guidance_utils.wan_motion_flow_utils import amf_validity_mask, compute_motion_flow
 from guidance_utils.wan_modules import WanInjectionProcessor, WanModuleWithGuidance
 from guidance_utils.wan_transformer import ControlledWanTransformer
 
@@ -429,10 +429,12 @@ class WanGuidance(nn.Module):
         self._set_kv_mode(self.config.guidance_blocks, inject=False, copy=True)
         self._forward_transformer(self.motion_latent, self.source_embeds, self.motion_timestep)
 
-        attn_features = {}
+        attn_features, attn_masks = {}, {}
+        max_disp = self.config.get("flow_max_disp", None)
+        min_conf = self.config.get("flow_min_conf", None)
         for block_id in self.config.guidance_blocks:
             proc = self.transformer.blocks[block_id].attn1.processor
-            attn_features[proc.block_name] = compute_motion_flow(
+            flow, conf = compute_motion_flow(
                 proc.query,
                 proc.key,
                 h=self.patches_height,
@@ -442,7 +444,16 @@ class WanGuidance(nn.Module):
                 argmax=self.config.argmax_motion_flow,
                 softmax_fp32=self.config.softmax_fp32,
                 head_dim=self.transformer.config.attention_head_dim,
+                return_confidence=True,
             )
+            attn_features[proc.block_name] = flow
+            mask = amf_validity_mask(flow, conf, max_disp=max_disp, min_conf=min_conf,
+                                     require_nonzero=self.config.threshloss)
+            attn_masks[proc.block_name] = mask
+            kept = mask.float().mean().item() * 100
+            print(f"  {proc.block_name}: reference AMF keeps {kept:.1f}% of entries "
+                  f"(threshloss={self.config.threshloss}, max_disp={max_disp}, min_conf={min_conf})")
+        self.motion_attn_masks = attn_masks
 
         self._set_kv_mode(self.config.guidance_blocks, inject=False, copy=False)
         self._clear_kv(self.config.guidance_blocks)
@@ -457,12 +468,19 @@ class WanGuidance(nn.Module):
             proc = self.transformer.blocks[block_id].attn1.processor
             motion_flow = self._amf(proc)
             ref_motion_flow = self.motion_attn_features[proc.block_name].detach().to(motion_flow.dtype)
+            mask = self.motion_attn_masks.get(proc.block_name)
 
-            if self.config.threshloss:
-                idxs = torch.norm(ref_motion_flow, dim=-1) > 0
-                attn_loss = F.mse_loss(ref_motion_flow[idxs], motion_flow[idxs])
+            if mask is not None and not mask.all():
+                ref_sel, tgt_sel = ref_motion_flow[mask], motion_flow[mask]
             else:
-                attn_loss = F.mse_loss(ref_motion_flow, motion_flow)
+                ref_sel, tgt_sel = ref_motion_flow, motion_flow
+
+            if self.config.get("flow_loss", "mse") == "huber":
+                # Linear beyond `delta`, so a surviving argmax outlier cannot
+                # dominate the way a squared term does.
+                attn_loss = F.huber_loss(tgt_sel, ref_sel, delta=self.config.get("huber_delta", 2.0))
+            else:
+                attn_loss = F.mse_loss(ref_sel, tgt_sel)
             total_loss = total_loss + attn_loss
 
         if self.config.guidance_blocks:
@@ -689,6 +707,11 @@ def main():
     parser.add_argument("--flow_shift", type=float, default=None)
     parser.add_argument("--guidance_blocks", type=int, nargs="+", default=None, help="Override guidance block indices")
     parser.add_argument("--motion_temp", type=float, default=None)
+    parser.add_argument("--flow_max_disp", type=float, default=None,
+                        help="Drop reference AMF displacements above N patch units")
+    parser.add_argument("--flow_min_conf", type=float, default=None,
+                        help="Drop reference AMF rows with peak softmax prob below this")
+    parser.add_argument("--flow_loss", type=str, default=None, choices=["mse", "huber"])
     parser.add_argument("--lr", type=float, nargs=2, default=None, metavar=("HI", "LO"))
     parser.add_argument("--optimization_steps", type=int, default=None)
     parser.add_argument("--guidance_timestep_range", type=int, nargs=2, default=None, metavar=("MAX", "MIN"))
@@ -727,6 +750,9 @@ def main():
         ("scheduler", opt.scheduler),
         ("flow_shift", opt.flow_shift),
         ("motion_temp", opt.motion_temp),
+        ("flow_max_disp", opt.flow_max_disp),
+        ("flow_min_conf", opt.flow_min_conf),
+        ("flow_loss", opt.flow_loss),
         ("lr", list(opt.lr) if opt.lr else None),
         ("optimization_steps", opt.optimization_steps),
         ("guidance_timestep_range", list(opt.guidance_timestep_range) if opt.guidance_timestep_range else None),
