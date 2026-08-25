@@ -1,0 +1,40 @@
+# DiTFlow guidance parameters for Wan2.1 T2V.
+# Separate from configs/guidance_config.yaml so the CogVideoX baseline is untouched.
+
+# --- Optimisation ---------------------------------------------------------
+lr: [0.002, 0.001]          # LR range across guidance_timestep_range
+optimization_steps: 5       # Optimisation steps per denoising step
+guidance_timestep_range: [50, 40]
+
+# --- Guidance placement ---------------------------------------------------
+# CogVideoX used ~50% depth (20/42 for 5B, 15/30 for 2B). Same ratio here.
+# These are starting points, NOT ported optima -- sweep them.
+guidance_blocks_1_3b: [15]   # Wan2.1-T2V-1.3B has 30 blocks
+guidance_blocks_14b: [20]    # Wan2.1-T2V-14B has 40 blocks
+injection_blocks: [0]
+
+# --- AMF ------------------------------------------------------------------
+motion_temp: 2              # Softmax sharpening on attention logits.
+                            # Wan applies RMSNorm to q/k (qk_norm=rms_norm_across_heads),
+                            # so logit scale differs from CogVideoX -- retune this first.
+threshloss: True            # Only score where reference AMF > 0
+argmax_motion_flow: True    # Argmax the reference motion flow
+checkpoint_amf: auto        # auto | true | false -- recompute frame-pair blocks in
+                            # backward. 'auto' enables above 7 latent frames.
+softmax_fp32: True          # Softmax AMF in fp32 (reference does it in bf16)
+
+# --- Sampling -------------------------------------------------------------
+num_inference_steps: 50
+guidance_scale: 5.0         # Wan2.1 default (CogVideoX used 7)
+scheduler: unipc            # unipc | flowmatch
+flow_shift: 3.0             # 3.0 for 480P, 5.0 for 720P
+height: 480
+width: 832                  # Wan2.1 480P native aspect
+num_frames: 33              # Must be 4k+1. 33 -> 9 latent frames.
+
+# --- Misc -----------------------------------------------------------------
+enable_gradient_checkpointing: True
+enable_model_cpu_offload: False   # Set True for <24GB VRAM
+prop_motion: 0.04                 # MOFT % channels
+source_prompt: ""
+device: 'cuda'

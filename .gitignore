@@ -1,3 +1,21 @@
-results/
-*.pth
 __pycache__
+*.pyc
+
+# Generation outputs.
+# NOTE: git has no trailing-comment syntax in .gitignore -- a '#' only starts
+# a comment at the start of a line, so keep annotations above patterns.
+# results/     motion_guidance.py default
+# results_wan/ motion_guidance_wan.py default
+# sweeps/      sweep_wan.py default (--output_root)
+results/
+results_wan/
+sweeps/
+
+# Optimised embeddings and eval artifacts. guidance_step saves one latent/rope
+# tensor per guided timestep; eval/ writes clip_score.pt and tracklets.pt.
+*.pt
+*.pth
+
+# Generated media, except the reference clips that ship with the repo.
+*.mp4
+!assets/*.mp4
