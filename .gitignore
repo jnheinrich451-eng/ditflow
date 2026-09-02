@@ -19,3 +19,11 @@ sweeps/
 # Generated media, except the reference clips that ship with the repo.
 *.mp4
 !assets/*.mp4
+
+# Datasets copied into the working tree. These belong outside the repo (E:\bench)
+# but a local copy is otherwise stageable: the *.mp4 rule above covers MiraData's
+# videos, and nothing covers DAVIS, which ships JPEG/PNG frame sequences -- 12k
+# files, ~820MB, one 'git add .' from being permanent.
+DAVIS/
+MiraData 9K/
+bench/

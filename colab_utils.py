@@ -179,3 +179,54 @@ def save_to_drive(output_dir="results_wan", drive_subdir="ditflow_wan"):
     shutil.copytree(output_dir, dest)
     print(f"copied -> {dest}")
     return str(dest)
+
+
+def zip_sweep(runs_root, zip_path=None, download=True, what=("results.mp4", "original.mp4")):
+    """Collect a sweep's videos into one flat zip and, in Colab, download it.
+
+    sweep.py writes one directory per cell, which is what keeps a generated
+    video attached to the reference that produced it -- but it also means a run
+    is hundreds of directories, and files.download only takes one file. This
+    flattens each cell to `<split>__<clip>__<prompt>__<config>__<seed>__<name>`
+    so the cell a video came from survives the flattening.
+
+    embeds/*.pt are never included: they are large and only matter for
+    --inject_embeds, not for looking at outputs.
+    """
+    import zipfile
+
+    root = Path(runs_root)
+    if not root.exists():
+        raise FileNotFoundError(f"{root} does not exist")
+
+    cells = sorted(p.parent for p in root.rglob("done.json"))
+    if not cells:
+        print(f"no finished cells under {root}/ -- nothing to zip")
+        return None
+
+    zip_path = Path(zip_path or f"{root.name}.zip")
+    n = 0
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        for cell in cells:
+            key = "__".join(cell.relative_to(root).parts)
+            for name in what:
+                src = cell / name
+                if src.exists():
+                    z.write(src, f"{key}__{name}")
+                    n += 1
+            meta = cell / "done.json"
+            if meta.exists():
+                z.write(meta, f"{key}__done.json")
+
+    size = zip_path.stat().st_size / 1024 ** 2
+    print(f"{zip_path}  {len(cells)} cells, {n} videos, {size:.1f} MB")
+    if size > 400:
+        print("  ! large for a browser download -- consider copying to Drive instead")
+    if download:
+        try:
+            from google.colab import files  # noqa: PLC0415
+
+            files.download(str(zip_path))
+        except ImportError:
+            print("(not in Colab -- copy the file yourself)")
+    return str(zip_path)

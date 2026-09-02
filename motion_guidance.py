@@ -12,10 +12,7 @@ from tqdm import tqdm
 from transformers import logging
 import torch.nn.functional as F
 import imageio
-from torchvision.io import read_video
-from torchvision.transforms import ToPILImage
 from PIL import Image
-from torchvision.io import write_video
 import gc
 from typing import Union, List
 
@@ -53,19 +50,36 @@ def clean_memory():
     torch.cuda.empty_cache()
     gc.collect()
 
+def read_video_frames(path):
+    """Decode a video to a list of HxWx3 uint8 arrays.
+
+    Not torchvision: `read_video`/`write_video` were deprecated and removed
+    upstream (the video API moved out to torchcodec), so importing them breaks
+    on current torch builds. This mirrors the fix already applied in
+    motion_guidance_wan.py; imageio and imageio-ffmpeg are existing
+    dependencies and are stable across versions.
+    """
+    try:
+        import imageio.v3 as iio
+
+        return [np.asarray(frame) for frame in iio.imiter(path, plugin="FFMPEG")]
+    except Exception:
+        reader = imageio.get_reader(path)
+        try:
+            return [np.asarray(frame) for frame in reader]
+        finally:
+            reader.close()
+
+
 def save_video(video, path):
-    video_codec = "libx264"
-    video_options = {
-        "crf": "17",  # Constant Rate Factor (lower value = higher quality, 18 is a good balance)
-        "preset": "slow",  # Encoding preset (e.g., ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow)
-    }   
-    write_video(
-        path,
-        video,
-        fps=10,
-        video_codec=video_codec,
-        options=video_options,
-    )
+    # fps=10 and crf/preset kept as they were, so outputs are unchanged.
+    frames = [np.asarray(f, dtype=np.uint8) for f in video]
+    try:
+        imageio.mimwrite(path, frames, fps=10, codec="libx264",
+                         ffmpeg_params=["-crf", "17", "-preset", "slow"])
+    except TypeError:
+        # imageio plugins vary on which kwargs they accept across versions.
+        imageio.mimwrite(path, frames, fps=10)
 
 def get_timesteps(timesteps, guidance_timestep_range, skip_timesteps=1):
     max_guidance_timestep, min_guidance_timestep = guidance_timestep_range
@@ -262,8 +276,10 @@ class Guidance(nn.Module):
         data_path = self.config.video_path
 
         if data_path.endswith(".mp4"):
-            video = read_video(data_path, pts_unit="sec")[0].permute(0, 3, 1, 2).cuda() / 255
-            video = [ToPILImage()(video[i]).resize(self.resolution) for i in range(video.shape[0])]
+            # Was a torchvision tensor round-trip via the GPU; the frames only
+            # ever became PIL images, so decode straight to PIL instead.
+            video = [Image.fromarray(f).convert("RGB").resize(self.resolution)
+                     for f in read_video_frames(data_path)]
         else:
             images = list(Path(data_path).glob("*.png")) + list(Path(data_path).glob("*.jpg"))
             images = sorted(images, key=lambda x: int(x.stem.split('f')[-1]))
