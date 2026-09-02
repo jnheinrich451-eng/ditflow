@@ -494,6 +494,27 @@ def main():
     for c in pending:
         build_cmd(c, grid, cell_dir(args.out, c))
 
+    # Every input a pending cell names must exist before the first model loads.
+    # The expensive failure is not a bad path, it is a bad path discovered N
+    # times: on Colab /content is wiped when the runtime recycles while --out on
+    # Drive survives, so a resumed sweep finds its results intact and its inputs
+    # gone, then fails identically for every remaining cell with a reason code
+    # that describes the symptom. One stat per distinct path costs nothing.
+    inputs = {}
+    for c in pending:
+        for col, val in c.items():
+            if col.endswith("_path") and val:
+                inputs.setdefault(val, col)
+    absent = sorted((p, col) for p, col in inputs.items() if not Path(p).exists())
+    if absent:
+        print(f"{len(absent)} of {len(inputs)} input paths do not exist:")
+        for p, col in absent[:5]:
+            print(f"  [{col}] {p}")
+        if len(absent) > 5:
+            print(f"  ... and {len(absent) - 5} more")
+        sys.exit("inputs are missing -- re-run the data/remap step "
+                 "(on Colab, /content is wiped when the runtime recycles)")
+
     if args.dry_run:
         print("\n-- dry run, " + str(len(pending)) + " cells would run --")
         for c in pending[:20]:
