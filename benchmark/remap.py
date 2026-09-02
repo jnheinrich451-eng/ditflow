@@ -36,6 +36,10 @@ def main():
                     help="path root as written in the manifest")
     ap.add_argument("--to", dest="dst", required=True, metavar="PREFIX",
                     help="path root on this machine")
+    ap.add_argument("--verify", action="store_true",
+                    help="check every rewritten path exists; use when --to is a "
+                         "root on THIS machine, not when preparing a manifest "
+                         "for another one")
     args = ap.parse_args()
 
     rows = list(csv.DictReader(open(args.manifest, newline="", encoding="utf-8")))
@@ -63,6 +67,21 @@ def main():
         print(f"  {c:18} {hits[c]}/{len(rows)} rewritten  [{state}]")
     if any(h == 0 for h in hits.values()):
         print("\n  ! a column matched nothing -- check --from against the manifest")
+
+    if args.verify:
+        # A manifest pointing at nothing produces one identical failure per
+        # cell, with a reason code that describes the symptom rather than this
+        # cause. Cheaper to stat every path once than to read 300 logs.
+        import os
+        missing = [(r["clip_id"], c, r[c]) for r in rows for c in cols
+                   if r.get(c) and not os.path.exists(r[c])]
+        if missing:
+            print(f"\n  ! {len(missing)} of {len(rows) * len(cols)} paths do not exist:")
+            for cid, c, path in missing[:5]:
+                print(f"      {cid} [{c}] {path}")
+            sys.exit("  --to is probably wrong for this machine")
+        print(f"  verified: all {len(rows) * len(cols)} paths exist")
+
     print(f"\nwrote {args.out}")
 
 
