@@ -7,7 +7,7 @@
 
 run_tag: cogvx5b
 model: 5b
-video_length: 24
+video_length: 21   # the paper's count, and CogVideoX's native 4k+1
 seeds: [1]
 
 configs:

@@ -6,7 +6,7 @@
 
 run_tag: cogvx2b   # first path component, so backbones never overwrite each other
 model: 2b
-video_length: 24   # motion_guidance.py default
+video_length: 21   # the paper's count, and CogVideoX's native 4k+1
 seeds: [1]         # add seeds only on the small variance subset
 
 configs:
