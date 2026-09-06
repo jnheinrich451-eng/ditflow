@@ -10,6 +10,8 @@ __pycache__
 results/
 results_wan/
 sweeps/
+probe_runs/
+probe_comparison/
 
 # Optimised embeddings and eval artifacts. guidance_step saves one latent/rope
 # tensor per guided timestep; eval/ writes clip_score.pt and tracklets.pt.

@@ -23,6 +23,7 @@ from guidance_utils.custom_transformer import ControlledTransformer
 from guidance_utils.custom_embeddings import prepare_rotary_positional_embeddings
 from guidance_utils.custom_modules import ModuleWithGuidance, InjectionProcessor
 from guidance_utils.motion_flow_utils import compute_motion_flow
+from guidance_utils.motion_probe import MotionProbe, add_probe_arguments, probe_config, tensor_stats, without_injection
 
 # suppress partial model loading warning
 logging.set_verbosity_error()
@@ -236,6 +237,7 @@ class Guidance(nn.Module):
         
         num_guidance_steps = self.config.guidance_timestep_range[0] - self.config.guidance_timestep_range[1] + 1
         self.lr_range = np.linspace(self.config.lr[0], self.config.lr[1], num_guidance_steps)
+        self.probe = MotionProbe(self, "cogvideox")
         
         print("Loading features from motion video")
         self.motion_latent = self.load_latent()
@@ -334,7 +336,7 @@ class Guidance(nn.Module):
         
         attn_features = {}
         # Store keys and queries for all attention blocks
-        with torch.autocast(device_type="cuda", dtype=self.dtype):
+        with torch.autocast(device_type="cuda", dtype=self.dtype), self.probe.phase("reference"):
             self.transformer(
                 hidden_states=self.motion_latent,
                 encoder_hidden_states=self.source_embeds,
@@ -348,6 +350,10 @@ class Guidance(nn.Module):
                                                     w=self.patches_width, 
                                                     temp=self.config.motion_temp, 
                                                     argmax=self.config.argmax_motion_flow)
+            if self.probe.enabled:
+                flow = attn_features[module.block_name]
+                mask = torch.norm(flow, dim=-1) > 0 if self.config.threshloss else torch.ones_like(flow[..., 0], dtype=torch.bool)
+                self.probe.actual_reference(module.block_name, flow, mask)
         
             self.transformer.transformer_blocks[block_id].attn1.processor.copy_kv = False
             self.transformer.transformer_blocks[block_id].attn1.processor.key = None
@@ -419,6 +425,8 @@ class Guidance(nn.Module):
                 attn_loss = F.mse_loss(ref_motion_flow, motion_flow)
 
             total_loss += attn_loss
+            self.probe.training_flow(module.block_name, motion_flow, ref_motion_flow,
+                                     idxs if self.config.threshloss else None, attn_loss)
         if len(self.config.guidance_blocks) > 0:
             total_loss /= len(self.config.guidance_blocks)
         
@@ -565,14 +573,18 @@ class Guidance(nn.Module):
             for step_i in tqdm(range(self.config.optimization_steps)):
                 optimizer.zero_grad()
 
-                total_loss = loss_method(x, t, rope=optimized_rope)
+                before = optimized_rope.detach().clone() if self.probe.enabled else None
+                with self.probe.phase("guidance", i, t, step_i, capture=step_i in (0, self.config.optimization_steps - 1)):
+                    total_loss = loss_method(x, t, rope=optimized_rope)
                 
                 if self.config.verbose:
                     print(f"Loss t={t}: {total_loss.item()}")
                 scaler.scale(total_loss).backward()
 
+                grad = tensor_stats(optimized_rope.grad / scaler.get_scale()) if self.probe.enabled and optimized_rope.grad is not None else None
                 scaler.step(optimizer)
                 scaler.update()
+                self.probe.optimization(i, t, step_i, total_loss, before, optimized_rope, grad, lr)
                 clean_memory()
             
             self.transformer.trainable_rope = optimized_rope.detach()
@@ -593,14 +605,18 @@ class Guidance(nn.Module):
             for step_i in tqdm(range(self.config.optimization_steps)):
                 optimizer.zero_grad()
 
-                total_loss = loss_method(x, t, pos_emb=optimized_emb)
+                before = optimized_emb.detach().clone() if self.probe.enabled else None
+                with self.probe.phase("guidance", i, t, step_i, capture=step_i in (0, self.config.optimization_steps - 1)):
+                    total_loss = loss_method(x, t, pos_emb=optimized_emb)
 
                 if self.config.verbose:
                     print(f"Loss t={t}: {total_loss.item()}")
                 scaler.scale(total_loss).backward()
 
+                grad = tensor_stats(optimized_emb.grad / scaler.get_scale()) if self.probe.enabled and optimized_emb.grad is not None else None
                 scaler.step(optimizer)
                 scaler.update()
+                self.probe.optimization(i, t, step_i, total_loss, before, optimized_emb, grad, lr)
                 clean_memory()
             self.transformer.trainable_pos_embedding = optimized_emb.detach()
             if self.config.save_embeds:
@@ -614,14 +630,18 @@ class Guidance(nn.Module):
             for step_i in tqdm(range(self.config.optimization_steps)):
                 optimizer.zero_grad()
 
-                total_loss = loss_method(optimized_x, t)
+                before = optimized_x.detach().clone() if self.probe.enabled else None
+                with self.probe.phase("guidance", i, t, step_i, capture=step_i in (0, self.config.optimization_steps - 1)):
+                    total_loss = loss_method(optimized_x, t)
                 
                 if self.config.verbose:
                     print(f"Loss t={t}: {total_loss.item()}")
                 scaler.scale(total_loss).backward()
 
+                grad = tensor_stats(optimized_x.grad / scaler.get_scale()) if self.probe.enabled and optimized_x.grad is not None else None
                 scaler.step(optimizer)
                 scaler.update()
+                self.probe.optimization(i, t, step_i, total_loss, before, optimized_x, grad, lr)
             
             if self.config.save_embeds:
                 os.makedirs(os.path.join(self.output_path, 'embeds'), exist_ok=True)
@@ -639,24 +659,26 @@ class Guidance(nn.Module):
         latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
         ts = t.expand(latent_model_input.shape[0]).to('cuda')
 
-        noise_pred_text = self.transformer(
-            hidden_states=latent_model_input,
-            encoder_hidden_states=prompt_embeds[1:2],
-            timestep=ts,
-            return_dict=False,
-            pos_embedding=pos_emb,
-            rope=rope,
-        )[0]
+        with self.probe.phase("denoise_cond", i, t):
+            noise_pred_text = self.transformer(
+                hidden_states=latent_model_input,
+                encoder_hidden_states=prompt_embeds[1:2],
+                timestep=ts,
+                return_dict=False,
+                pos_embedding=pos_emb,
+                rope=rope,
+            )[0]
         noise_pred_text = noise_pred_text.float()
 
-        noise_pred_uncond = self.transformer(
-            hidden_states=latent_model_input,
-            encoder_hidden_states=prompt_embeds[:1],
-            timestep=ts,
-            return_dict=False,
-            pos_embedding=pos_emb,
-            rope=rope,
-        )[0]
+        with self.probe.phase("denoise_uncond", i, t):
+            noise_pred_uncond = self.transformer(
+                hidden_states=latent_model_input,
+                encoder_hidden_states=prompt_embeds[:1],
+                timestep=ts,
+                return_dict=False,
+                pos_embedding=pos_emb,
+                rope=rope,
+            )[0]
         noise_pred_uncond = noise_pred_uncond.float()
 
 
@@ -666,6 +688,7 @@ class Guidance(nn.Module):
             )
 
         noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
+        self.probe.prediction(i, t, noise_pred_text, noise_pred_uncond, self.guidance_scale)
 
         if not isinstance(self.scheduler, CogVideoXDPMScheduler):
             # CogVideo-2B
@@ -692,6 +715,7 @@ class Guidance(nn.Module):
         x0_prev = None # for DPM-solver++
         
         for i, t in enumerate(tqdm(self.timesteps, desc="Sampling")):
+            before_guidance = latents.detach().clone() if self.probe.enabled else None
             is_guidance_step = t in self.guidance_schedule
             # Clear embeddings after guidance phase
             if not is_guidance_step:
@@ -739,6 +763,7 @@ class Guidance(nn.Module):
                             latents = torch.load(os.path.join(embeds_path, f"latent_{t}.pt")).to(dtype=self.dtype, device=self.device)
             
             # Perform denoising step
+            after_guidance = latents.detach().clone() if self.probe.enabled else None
             latents, x0_prev = self.denoise_step(
                 latents, 
                 i, 
@@ -747,6 +772,13 @@ class Guidance(nn.Module):
                 pos_emb=pos_emb,
                 rope=rope,
             )
+            self.probe.sampling(i, t, before_guidance, after_guidance, latents, self.scheduler)
+
+        if self.probe.enabled:
+            processors = [b.attn1.processor for b in self.transformer.transformer_blocks]
+            with without_injection(processors), self.probe.phase("final_latent"), torch.autocast(device_type="cuda", dtype=self.dtype):
+                self.transformer(hidden_states=latents, encoder_hidden_states=self.guidance_embeds[1:2],
+                                 timestep=self.motion_timestep, return_dict=False)
         
         # Decode and save results
         with torch.no_grad():
@@ -782,6 +814,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--save_format", type=str, default="mp4", choices=["mp4", "gif", "frames"])
     parser.add_argument("--verbose", action="store_true", help="Print loss values") 
+    add_probe_arguments(parser)
     opt = parser.parse_args()
 
     config = OmegaConf.load(f"configs/guidance_config.yaml")
@@ -790,6 +823,7 @@ if __name__ == "__main__":
         config.injection_blocks = []
 
     cli_config = {
+        **probe_config(opt),
         'model_key': f"THUDM/CogVideoX-{opt.model}",
         'video_path': opt.video_path,
         'target_prompt': opt.prompt,

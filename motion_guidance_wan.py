@@ -52,6 +52,7 @@ from diffusers.utils import export_to_video
 from guidance_utils.wan_motion_flow_utils import amf_validity_mask, compute_motion_flow
 from guidance_utils.wan_modules import WanInjectionProcessor, WanModuleWithGuidance
 from guidance_utils.wan_transformer import ControlledWanTransformer
+from guidance_utils.motion_probe import MotionProbe, add_probe_arguments, probe_config, tensor_stats, without_injection
 
 logging.set_verbosity_error()
 
@@ -282,6 +283,7 @@ class WanGuidance(nn.Module):
 
         num_guidance_steps = config.guidance_timestep_range[0] - config.guidance_timestep_range[1] + 1
         self.lr_range = np.linspace(config.lr[0], config.lr[1], num_guidance_steps)
+        self.probe = MotionProbe(self, "wan")
 
         print("Loading features from motion video")
         self.motion_latent = self.load_latent()
@@ -389,6 +391,8 @@ class WanGuidance(nn.Module):
         else:
             blocks = None
         self.transformer.stop_after_block = max(blocks) if blocks else None
+        if self.probe.context and self.probe.context["stage"] in ("reference", "final_latent"):
+            self.transformer.stop_after_block = max([*(blocks or []), *self.probe.blocks])
         try:
             with torch.autocast(device_type="cuda", dtype=self.dtype):
                 self.transformer(
@@ -427,7 +431,8 @@ class WanGuidance(nn.Module):
     def load_attn_features(self):
         """AMF extraction from the reference video."""
         self._set_kv_mode(self.config.guidance_blocks, inject=False, copy=True)
-        self._forward_transformer(self.motion_latent, self.source_embeds, self.motion_timestep)
+        with self.probe.phase("reference"):
+            self._forward_transformer(self.motion_latent, self.source_embeds, self.motion_timestep)
 
         attn_features, attn_masks = {}, {}
         max_disp = self.config.get("flow_max_disp", None)
@@ -450,6 +455,7 @@ class WanGuidance(nn.Module):
             mask = amf_validity_mask(flow, conf, max_disp=max_disp, min_conf=min_conf,
                                      require_nonzero=self.config.threshloss)
             attn_masks[proc.block_name] = mask
+            self.probe.actual_reference(proc.block_name, flow, mask)
             kept = mask.float().mean().item() * 100
             print(f"  {proc.block_name}: reference AMF keeps {kept:.1f}% of entries "
                   f"(threshloss={self.config.threshloss}, max_disp={max_disp}, min_conf={min_conf})")
@@ -482,6 +488,7 @@ class WanGuidance(nn.Module):
             else:
                 attn_loss = F.mse_loss(ref_sel, tgt_sel)
             total_loss = total_loss + attn_loss
+            self.probe.training_flow(proc.block_name, motion_flow, ref_motion_flow, mask, attn_loss)
 
         if self.config.guidance_blocks:
             total_loss = total_loss / len(self.config.guidance_blocks)
@@ -559,13 +566,17 @@ class WanGuidance(nn.Module):
             optimized_rope = base.clone().detach().to(dtype=torch.float32, device=self.device).requires_grad_(True)
             optimizer = torch.optim.Adam([optimized_rope], lr=lr)
 
-            for _ in tqdm(range(self.config.optimization_steps), desc=f"opt t={int(t)}", leave=False):
+            for opt_i in tqdm(range(self.config.optimization_steps), desc=f"opt t={int(t)}", leave=False):
                 optimizer.zero_grad()
-                total_loss = loss_method(x, t, rope=optimized_rope)
+                before = optimized_rope.detach().clone() if self.probe.enabled else None
+                with self.probe.phase("guidance", i, t, opt_i, capture=opt_i in (0, self.config.optimization_steps - 1)):
+                    total_loss = loss_method(x, t, rope=optimized_rope)
                 if self.config.verbose:
                     print(f"Loss t={t}: {total_loss.item()}")
                 total_loss.backward()
+                grad = tensor_stats(optimized_rope.grad) if self.probe.enabled else None
                 optimizer.step()
+                self.probe.optimization(i, t, opt_i, total_loss, before, optimized_rope, grad, lr)
                 clean_memory()
 
             self.transformer.trainable_rope = optimized_rope.detach()
@@ -576,13 +587,17 @@ class WanGuidance(nn.Module):
             optimized_x = x.clone().detach().to(dtype=torch.float32).requires_grad_(True)
             optimizer = torch.optim.Adam([optimized_x], lr=lr)
 
-            for _ in tqdm(range(self.config.optimization_steps), desc=f"opt t={int(t)}", leave=False):
+            for opt_i in tqdm(range(self.config.optimization_steps), desc=f"opt t={int(t)}", leave=False):
                 optimizer.zero_grad()
-                total_loss = loss_method(optimized_x, t)
+                before = optimized_x.detach().clone() if self.probe.enabled else None
+                with self.probe.phase("guidance", i, t, opt_i, capture=opt_i in (0, self.config.optimization_steps - 1)):
+                    total_loss = loss_method(optimized_x, t)
                 if self.config.verbose:
                     print(f"Loss t={t}: {total_loss.item()}")
                 total_loss.backward()
+                grad = tensor_stats(optimized_x.grad) if self.probe.enabled else None
                 optimizer.step()
+                self.probe.optimization(i, t, opt_i, total_loss, before, optimized_x, grad, lr)
 
             if self.config.save_embeds:
                 torch.save(optimized_x.detach(), os.path.join(self.output_path, "embeds", f"latent_{t}.pt"))
@@ -597,7 +612,7 @@ class WanGuidance(nn.Module):
         latent_model_input = latents.to(self.dtype)
         ts = t.expand(latent_model_input.shape[0]).to(self.device)
 
-        with torch.autocast(device_type="cuda", dtype=self.dtype):
+        with torch.autocast(device_type="cuda", dtype=self.dtype), self.probe.phase("denoise_cond", i, t):
             noise_pred_text = self.transformer(
                 hidden_states=latent_model_input,
                 timestep=ts,
@@ -606,6 +621,7 @@ class WanGuidance(nn.Module):
                 return_dict=False,
             )[0].float()
 
+        with torch.autocast(device_type="cuda", dtype=self.dtype), self.probe.phase("denoise_uncond", i, t):
             noise_pred_uncond = self.transformer(
                 hidden_states=latent_model_input,
                 timestep=ts,
@@ -615,6 +631,7 @@ class WanGuidance(nn.Module):
             )[0].float()
 
         noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
+        self.probe.prediction(i, t, noise_pred_text, noise_pred_uncond, self.guidance_scale)
         return self.scheduler.step(noise_pred, t, latents.float(), return_dict=False)[0]
 
     def _add_noise(self, sample, noise, t):
@@ -630,6 +647,7 @@ class WanGuidance(nn.Module):
         injection_blocks = list(self.config.injection_blocks)
 
         for i, t in enumerate(tqdm(self.timesteps, desc="Sampling")):
+            before_guidance = latents.detach().clone() if self.probe.enabled else None
             is_guidance_step = bool((self.guidance_schedule == t).any())
             if not is_guidance_step:
                 rope = None
@@ -660,7 +678,14 @@ class WanGuidance(nn.Module):
                         elif self.config.guidance_mode == "latent":
                             latents = torch.load(os.path.join(embeds_path, f"latent_{t}.pt")).to(self.device)
 
+            after_guidance = latents.detach().clone() if self.probe.enabled else None
             latents = self.denoise_step(latents, i, self.guidance_embeds, rope=rope)
+            self.probe.sampling(i, t, before_guidance, after_guidance, latents, self.scheduler)
+
+        if self.probe.enabled:
+            processors = [b.attn1.processor for b in self.transformer.blocks]
+            with without_injection(processors), self.probe.phase("final_latent"):
+                self._forward_transformer(latents, self.guidance_embeds[1:2], self.motion_timestep)
 
         # ---- Decode ------------------------------------------------------- #
         with torch.no_grad():
@@ -729,6 +754,7 @@ def main():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--save_format", type=str, default="mp4", choices=["mp4", "gif", "frames"])
     parser.add_argument("--verbose", action="store_true")
+    add_probe_arguments(parser)
     opt = parser.parse_args()
 
     config = OmegaConf.load("configs/guidance_config_wan.yaml")
@@ -736,6 +762,7 @@ def main():
         config.injection_blocks = []
 
     overrides = {
+        **probe_config(opt),
         "model_key": MODEL_IDS[opt.model],
         "video_path": opt.video_path,
         "target_prompt": opt.prompt,

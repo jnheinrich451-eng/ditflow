@@ -103,7 +103,7 @@ def check_chain():
     explicit = model(hidden_states=lat, timestep=ts, encoder_hidden_states=txt,
                      rope=rope_qk, return_dict=False)[0]
     d = (base - explicit).abs().max().item()
-    check("rotary rewrite identical to diffusers", f"max|diff| = {d:.3e}", d == 0.0)
+    check("implicit vs explicit default RoPE", f"max|diff| = {d:.3e}", d == 0.0)
 
     gb = 2
     model.blocks[gb] = WanModuleWithGuidance(model.blocks[gb], height, width, 2, "block_2", ppf)

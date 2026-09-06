@@ -50,6 +50,7 @@ class WanInjectionProcessor:
         self.block_name = block_name
         self.inject_kv = False
         self.copy_kv = False
+        self.motion_probe = None
 
         self.query = None
         self.key = None
@@ -96,6 +97,9 @@ class WanInjectionProcessor:
                 self.query = query[-1:]
                 self.key = key[-1:]
                 self.value = value[-1:]
+
+        if self.motion_probe is not None and not attn.is_cross_attention:
+            self.motion_probe.attention(self.block_name, query, key, injected=self.inject_kv)
 
         hidden_states_img = None
         if encoder_hidden_states_img is not None:

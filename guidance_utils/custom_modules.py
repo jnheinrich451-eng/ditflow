@@ -16,6 +16,7 @@ class InjectionProcessor:
         self.block_name = block_name
         self.inject_kv = False
         self.copy_kv = False
+        self.motion_probe = None
 
         self.query = None
         self.key = None
@@ -78,6 +79,10 @@ class InjectionProcessor:
             self.query = query[-1:]
             self.value = value[-1:]
         
+        if self.motion_probe is not None:
+            self.motion_probe.attention(self.block_name, query, key,
+                                        injected=self.inject_kv, text_prefix=text_seq_length)
+
         hidden_states = F.scaled_dot_product_attention(
             query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
         )
