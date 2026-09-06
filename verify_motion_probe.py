@@ -174,6 +174,7 @@ class ProbeTests(unittest.TestCase):
                 g.scheduler.set_timesteps(2, device=g.device)
                 g.timesteps = g.scheduler.timesteps
                 g.lr_range = np.array([0.002])
+                g.lr_by_step = {0: 0.002}
                 g.output_path = root
                 g.register_guidance([1])
                 g.register_attention_processor([0, 1, 2])

@@ -145,6 +145,10 @@ class MotionProbe:
         metadata["guidance_timesteps"] = owner.guidance_schedule.detach().cpu().tolist() if hasattr(owner, "guidance_schedule") else None
         if hasattr(owner, "lr_range"):
             metadata["lr_range"] = list(owner.lr_range)
+        if hasattr(owner, "lr_by_step"):
+            metadata["lr_by_sampling_step"] = owner.lr_by_step
+        if hasattr(owner, "injection_schedule"):
+            metadata["injection_timesteps"] = owner.injection_schedule.detach().cpu().tolist()
         (self.path / "metadata.json").write_text(json.dumps(_json_safe(metadata), indent=2), encoding="utf-8")
         for b in self.blocks:
             modules[b].attn1.processor.motion_probe = self

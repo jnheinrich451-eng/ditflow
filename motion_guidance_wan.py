@@ -53,6 +53,7 @@ from guidance_utils.wan_motion_flow_utils import amf_validity_mask, compute_moti
 from guidance_utils.wan_modules import WanInjectionProcessor, WanModuleWithGuidance
 from guidance_utils.wan_transformer import ControlledWanTransformer
 from guidance_utils.motion_probe import MotionProbe, add_probe_arguments, probe_config, tensor_stats, without_injection
+from guidance_utils.wan_guidance_schedule import window_indices, learning_rates
 
 logging.set_verbosity_error()
 
@@ -128,6 +129,16 @@ class WanGuidance(nn.Module):
         self.batch_size = 1
         self.num_inference_steps = config["num_inference_steps"]
         self._guidance_scale = config.guidance_scale
+
+        # Validate before downloading/loading weights. Windows refer to sampling
+        # indices, not the numerical noise timesteps of a particular scheduler.
+        self.guidance_steps = window_indices(self.num_inference_steps, config.guidance_timestep_range)
+        injection_range = config.get("injection_timestep_range")
+        if injection_range is None:
+            injection_range = config.guidance_timestep_range
+        self.injection_steps = window_indices(self.num_inference_steps, injection_range)
+        self.lr_by_step = learning_rates(self.guidance_steps, config.lr, config.get("lr_decay_steps"))
+        self.lr_range = np.asarray(list(self.lr_by_step.values()))
 
         print(f"Loading {config.model_key}")
         # Load the controlled transformer straight from the hub rather than
@@ -256,7 +267,8 @@ class WanGuidance(nn.Module):
 
         self.scheduler.set_timesteps(self.num_inference_steps, device=self.device)
         self.timesteps = self.scheduler.timesteps
-        self.guidance_schedule = get_timesteps(self.timesteps, config.guidance_timestep_range)
+        self.guidance_schedule = self.timesteps[self.guidance_steps]
+        self.injection_schedule = self.timesteps[self.injection_steps]
 
         self.transformer.init_rope = self.transformer.default_rope(self.init_latents.to(self.device))
         self.transformer.guidance_blocks = config.guidance_blocks
@@ -281,8 +293,6 @@ class WanGuidance(nn.Module):
         self.register_guidance(config.guidance_blocks)
         self.register_attention_processor(list(range(len(self.transformer.blocks))))
 
-        num_guidance_steps = config.guidance_timestep_range[0] - config.guidance_timestep_range[1] + 1
-        self.lr_range = np.linspace(config.lr[0], config.lr[1], num_guidance_steps)
         self.probe = MotionProbe(self, "wan")
 
         print("Loading features from motion video")
@@ -456,6 +466,12 @@ class WanGuidance(nn.Module):
                                      require_nonzero=self.config.threshloss)
             attn_masks[proc.block_name] = mask
             self.probe.actual_reference(proc.block_name, flow, mask)
+            if not mask.any() and not self.config.get("reference_only", False):
+                raise ValueError(
+                    f"{proc.block_name}: no reference AMF entries survive the mask. "
+                    "Inspect the reference with --probe --reference_only; consider "
+                    "--no_threshloss or relaxing the displacement/confidence filters."
+                )
             kept = mask.float().mean().item() * 100
             print(f"  {proc.block_name}: reference AMF keeps {kept:.1f}% of entries "
                   f"(threshloss={self.config.threshloss}, max_disp={max_disp}, min_conf={min_conf})")
@@ -475,6 +491,9 @@ class WanGuidance(nn.Module):
             motion_flow = self._amf(proc)
             ref_motion_flow = self.motion_attn_features[proc.block_name].detach().to(motion_flow.dtype)
             mask = self.motion_attn_masks.get(proc.block_name)
+
+            if mask is not None and not mask.any():
+                raise ValueError(f"{proc.block_name}: cannot optimize an empty reference AMF mask")
 
             if mask is not None and not mask.all():
                 ref_sel, tgt_sel = ref_motion_flow[mask], motion_flow[mask]
@@ -548,7 +567,7 @@ class WanGuidance(nn.Module):
         """Optimise `mode` (latent | rope) against `loss_type` at one denoising step."""
         self._set_kv_mode(self.config.guidance_blocks, inject=False, copy=True)
 
-        lr = self.lr_range[i]
+        lr = self.lr_by_step[i]
         loss_method = {
             "flow": self.compute_motion_flow_loss,
             "moft": self.compute_moft_loss,
@@ -648,13 +667,14 @@ class WanGuidance(nn.Module):
 
         for i, t in enumerate(tqdm(self.timesteps, desc="Sampling")):
             before_guidance = latents.detach().clone() if self.probe.enabled else None
-            is_guidance_step = bool((self.guidance_schedule == t).any())
+            is_guidance_step = i in self.guidance_steps
+            is_injection_step = i in self.injection_steps
             if not is_guidance_step:
                 rope = None
 
             self._set_kv_mode(injection_blocks, inject=False, copy=True)
 
-            if is_guidance_step and injection_blocks:
+            if is_injection_step and injection_blocks:
                 # Cache KV from the reference video at this noise level.
                 noisy_latent = self._add_noise(self.motion_latent.float(), self.init_latents, t)
                 self._forward_transformer(
@@ -738,14 +758,19 @@ def main():
                         help="Drop reference AMF rows with peak softmax prob below this")
     parser.add_argument("--flow_loss", type=str, default=None, choices=["mse", "huber"])
     parser.add_argument("--no_threshloss", action="store_true",
-                        help="Score the WHOLE reference AMF, including its zero-displacement "
-                             "entries. threshloss=True (the upstream default) drops those, which "
-                             "for a static-camera reference discards the entire background and "
-                             "leaves camera drift completely unpenalised.")
+                        help="Include zero-displacement matches; displacement/confidence filters still apply. "
+                             "Zero AMF is not proof of physical stillness.")
     parser.add_argument("--guidance_scale", type=float, default=None)
     parser.add_argument("--lr", type=float, nargs=2, default=None, metavar=("HI", "LO"))
     parser.add_argument("--optimization_steps", type=int, default=None)
     parser.add_argument("--guidance_timestep_range", type=int, nargs=2, default=None, metavar=("MAX", "MIN"))
+    parser.add_argument("--injection_timestep_range", type=int, nargs=2, default=None, metavar=("MAX", "MIN"),
+                        help="Independent KV-injection window; defaults to the guidance window. "
+                             "With 50 steps, 50 20 selects steps 0 through 29.")
+    parser.add_argument("--lr_decay_steps", type=int, default=None,
+                        help="Decay LR over this many active guidance steps, then hold the final LR")
+    parser.add_argument("--reference_only", action="store_true",
+                        help="Extract reference features/probes and exit before guided generation")
     parser.add_argument("--no_guidance", action="store_true")
     parser.add_argument("--no_injection", action="store_true")
     parser.add_argument("--inject_embeds", action="store_true")
@@ -775,6 +800,7 @@ def main():
         "save_embeds": True,
         "inject_embeds": opt.inject_embeds,
         "verbose": opt.verbose,
+        "reference_only": opt.reference_only,
     }
     for key, value in [
         ("num_frames", opt.num_frames),
@@ -790,6 +816,8 @@ def main():
         ("lr", list(opt.lr) if opt.lr else None),
         ("optimization_steps", opt.optimization_steps),
         ("guidance_timestep_range", list(opt.guidance_timestep_range) if opt.guidance_timestep_range else None),
+        ("injection_timestep_range", list(opt.injection_timestep_range) if opt.injection_timestep_range else None),
+        ("lr_decay_steps", opt.lr_decay_steps),
     ]:
         if value is not None:
             overrides[key] = value
@@ -811,6 +839,10 @@ def main():
     OmegaConf.save(config, Path(config["output_path"]) / "config.yaml")
 
     guidance = WanGuidance(config)
+
+    if opt.reference_only:
+        print(f"[*] Reference extraction complete: {guidance.output_path}")
+        return
 
     print(f"[*] Starting inference for {opt.video_path}...")
     if torch.cuda.is_available():

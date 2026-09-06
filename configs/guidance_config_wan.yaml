@@ -5,6 +5,8 @@
 lr: [0.002, 0.001]          # LR range across guidance_timestep_range
 optimization_steps: 5       # Optimisation steps per denoising step
 guidance_timestep_range: [50, 40]
+injection_timestep_range: null  # null follows guidance; [50, 20] injects at steps 0..29
+lr_decay_steps: null         # null spans active guidance; fixed count enables equal-prefix comparisons
 
 # --- Guidance placement ---------------------------------------------------
 # CogVideoX used ~50% depth (20/42 for 5B, 15/30 for 2B). Same ratio here.
@@ -17,32 +19,19 @@ injection_blocks: [0]
 motion_temp: 2              # Softmax sharpening on attention logits.
                             # Wan applies RMSNorm to q/k (qk_norm=rms_norm_across_heads),
                             # so logit scale differs from CogVideoX -- retune this first.
-threshloss: True            # Score ONLY where the reference AMF is non-zero.
-                            # CLIP-DEPENDENT, and the upstream default assumes a
-                            # MOVING camera. Zero-displacement entries are the
-                            # static background, so dropping them removes any
-                            # penalty on camera drift: with a static-camera
-                            # reference the loss becomes literally invariant to
-                            # what the generated background does, and the model
-                            # is free to dolly/zoom. Panning reference (bmx) ->
-                            # ~95% of entries survive, fine. Static reference
-                            # (lucia) -> ~8% survive and the camera is
-                            # unconstrained. Use --no_threshloss for those.
+threshloss: True            # Score only nonzero reference AMF, as upstream does.
+                            # Same-position attention matches are not a physical
+                            # static-background mask. Use --no_threshloss as an
+                            # ablation; inspect actual retained locations first.
 argmax_motion_flow: True    # Argmax the reference motion flow
 
 # Reference-AMF outlier rejection. Defaults are OFF (null/mse), which reproduces
-# upstream DiTFlow exactly -- turn them on to A/B against it.
+# the upstream filtering choice -- turn them on to A/B against it.
 #
-# argmax over ~1500 candidates has no fallback when a patch has NO true match
-# (occluded by a foreground object, or flat/repeating texture): it picks
-# essentially at random. Measured on a 30x52 grid such a patch yields ~22 patches
-# of displacement vs ~6 for genuine motion, and threshloss keeps it because the
-# value is merely non-zero. Under MSE it then carries ~14x the weight of a real
-# correspondence, which shows up as sudden global camera lurches on frames where
-# an occluder sweeps through.
+# Argmax can select unreliable correspondences in occluded or ambiguous regions.
+# These filters are heuristics; large displacement can also be legitimate,
+# particularly because the loss includes nonadjacent frame pairs.
 flow_max_disp: null         # drop reference displacements above N PATCH units.
-                            # On a 30x52 grid ~10 is a third of the frame; no
-                            # real inter-frame motion is that large. Try 8-12.
 flow_min_conf: null         # drop rows whose peak softmax prob is below this,
                             # i.e. the correspondence is undetermined. Try
                             # 0.01-0.05; scale-dependent, so read the "keeps N%"

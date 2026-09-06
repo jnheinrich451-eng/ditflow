@@ -71,6 +71,45 @@ def _inline_figure(fig):
     return '<img alt="Motion probe plot" src="data:image/png;base64,' + base64.b64encode(buffer.getvalue()).decode() + '">'
 
 
+def retained_metrics(prediction, reference, mask):
+    """Patch-coordinate metrics on the actual loss mask; direction excludes zeros."""
+    pred, ref = np.asarray(prediction, dtype=np.float64), np.asarray(reference, dtype=np.float64)
+    mask = np.asarray(mask, dtype=bool)
+    if pred.shape != ref.shape or mask.shape != ref.shape[:-1]:
+        raise ValueError('AMF prediction, reference, and mask shapes do not agree')
+    error = ((pred - ref) ** 2).mean(axis=-1)
+    norms = np.linalg.norm(pred, axis=-1) * np.linalg.norm(ref, axis=-1)
+    moving = mask & (norms > 1e-8)
+    cosine = (pred * ref).sum(axis=-1)[moving] / norms[moving]
+    strong = moving & (np.linalg.norm(pred, axis=-1) >= .5)
+    strong_cosine = (pred * ref).sum(axis=-1)[strong] / norms[strong]
+    return dict(kept_fraction=float(mask.mean()),
+                retained_mse=float(error[mask].mean()) if mask.any() else None,
+                zero_prediction_mse=float((ref[mask] ** 2).mean()) if mask.any() else None,
+                direction_cosine=float(cosine.mean()) if cosine.size else None,
+                direction_positive_fraction=float((cosine > 0).mean()) if cosine.size else None,
+                direction_cosine_half_patch=float(strong_cosine.mean()) if strong_cosine.size else None)
+
+
+def direction_rows(path, meta, events):
+    """Compare diagnostic soft AMF to actual hard reference on adjacent pairs."""
+    f = meta['grid'][0]
+    adjacent = np.arange(f - 1) * (f + 1) + 1
+    rows = []
+    for event in (e for e in events if e['kind'] == 'training_reference'):
+        with np.load(path / event['file']) as data:
+            ref, mask = data['flow'][adjacent], data['mask'][adjacent]
+        for capture in events:
+            if (capture['kind'] != 'attention' or capture['block'] != event['block']
+                    or capture['stage'] not in ('denoise_cond', 'final_latent')):
+                continue
+            with np.load(path / capture['file']) as data:
+                metrics = retained_metrics(data['soft'], ref, mask)
+            rows.append(dict(run=str(path), block=event['block'], stage=capture['stage'],
+                             step=capture['step'], **metrics))
+    return rows
+
+
 def make_report(runs, output_dir):
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
@@ -84,14 +123,15 @@ def make_report(runs, output_dir):
             '<p>Compare direction patterns and within-run trends. Different models have different noise schedules, '
             'VAE temporal support, grids, conditioning, and logit distributions. Neither identical step indices '
             'nor absolute loss values establish equivalent conditions. Arrow scale is fixed in fractions of image width/height.</p>']
-    csv_rows = []
+    csv_rows, all_direction_rows = [], []
     for run_i, (path, meta, events) in enumerate(traces):
         label = f"{meta['model']} — {path.parent.parent.name}"
         page.append(f"<h2>{html.escape(label)}</h2><p>{html.escape(str(path))}</p>")
         cfg = meta["config"]
         settings = {k: cfg.get(k) for k in ("model_key", "seed", "video_path", "target_prompt", "height", "width",
                                             "num_frames", "video_length", "guidance_blocks", "injection_blocks",
-                                            "guidance_timestep_range", "motion_temp", "threshloss", "flow_max_disp", "flow_min_conf")}
+                                            "guidance_timestep_range", "injection_timestep_range", "lr_decay_steps",
+                                            "reference_only", "motion_temp", "threshloss", "flow_max_disp", "flow_min_conf")}
         settings.update(scheduler=meta["scheduler"], probe_blocks=meta["blocks"], packages=meta["packages"])
         page.append("<pre>" + html.escape(json.dumps(settings, indent=2)) + "</pre>")
         reference_masks = [e for e in events if e["kind"] == "training_reference"]
@@ -121,6 +161,36 @@ def make_report(runs, output_dir):
         fig.tight_layout()
         fig.savefig(destination / f"run_{run_i}_curves.png", dpi=150)
         page.append(_inline_figure(fig))
+        rows = direction_rows(path, meta, events)
+        all_direction_rows.extend(rows)
+        if rows:
+            page.append('<h3>Direction on retained reference correspondences</h3><p>'
+                        'Forward-adjacent pairs only, using the actual training-reference mask. '
+                        'MSE is in patch coordinates; cosine +1 means aligned, -1 opposite. '
+                        'Direction excludes zero reference/predicted vectors. These are attention '
+                        'correspondences, including background, not measured subject motion. '
+                        'The zero-prediction MSE is a trivial diagnostic baseline, not an unguided generation.</p>')
+            for block in dict.fromkeys(r['block'] for r in rows):
+                samples = [r for r in rows if r['block'] == block and r['stage'] == 'denoise_cond']
+                fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+                steps = [r['step'] for r in samples]
+                axes[0].plot(steps, [r['retained_mse'] for r in samples], marker='o', label='Retained MSE')
+                if samples and samples[0]['zero_prediction_mse'] is not None:
+                    axes[0].axhline(samples[0]['zero_prediction_mse'], linestyle=':', color='gray', label='Zero prediction')
+                axes[0].set(xlabel='Sampling step', ylabel='Patch-coordinate MSE')
+                axes[1].plot(steps, [r['direction_cosine'] for r in samples], marker='o', label='Nonzero vectors')
+                axes[1].plot(steps, [r['direction_cosine_half_patch'] for r in samples], marker='o', label='Prediction >= 0.5 patch')
+                axes[1].axhline(0, color='gray', linestyle=':')
+                axes[1].set(xlabel='Sampling step', ylabel='Mean direction cosine', ylim=(-1, 1))
+                for ax in axes:
+                    ax.legend(fontsize=8)
+                fig.suptitle(block)
+                fig.tight_layout()
+                fig.savefig(destination / f'run_{run_i}_{block}_direction.png', dpi=150)
+                page.append(_inline_figure(fig))
+                final = next((r for r in rows if r['block'] == block and r['stage'] == 'final_latent'), None)
+                if final:
+                    page.append('<pre>Final latent: ' + html.escape(json.dumps(final, indent=2)) + '</pre>')
         for block in meta["blocks"]:
             for stage in ("reference", "final_latent"):
                 try:
@@ -142,6 +212,11 @@ def make_report(runs, output_dir):
             writer = csv.DictWriter(f, fieldnames=list(csv_rows[0]))
             writer.writeheader()
             writer.writerows(csv_rows)
+    if all_direction_rows:
+        with (destination / 'direction_metrics.csv').open('w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=list(all_direction_rows[0]))
+            writer.writeheader()
+            writer.writerows(all_direction_rows)
     report = destination / "comparison.html"
     report.write_text("\n".join(page), encoding="utf-8")
     return report

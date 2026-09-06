@@ -1,9 +1,49 @@
 # Investigating the Wan DiTFlow port
 
+## Schedule fixes and persistence experiments
+
+In `notebook.ipynb`, use **Wan schedule fixes: baseline and motion-persistence
+trials** after the probe setup. It generates a fresh control (10 guided steps,
+10 KV-injection steps) and a trial (30 guided steps, 10 KV-injection steps).
+Optional cells extend only KV injection, extend both, or repeat one reference
+frame losslessly and extract its AMF without generation. These settings are
+experiments motivated by the Rallye trace, not validated visual improvements.
+
+The Wan port now indexes learning rates by active guidance steps, including
+windows starting later in sampling. The default ten-step ramp reaches its
+final LR at step 9; the old eleven-value ramp did not. Rerun the control rather
+than comparing against an old video. `--lr_decay_steps 10` gives the control
+and extended trial identical LR prefixes, then holds the final LR.
+
+For a 50-step run, the first trial adds these options to the existing Euler
+probe command:
+
+```text
+--guidance_timestep_range 50 20 --injection_timestep_range 50 40 --lr_decay_steps 10
+```
+
+Window endpoints count remaining sampling steps: `[50, 20]` selects indices
+0–29, `[30, 10]` selects 20–39. Omitted `injection_timestep_range` follows the
+guidance window. An empty AMF mask now fails with an explanation instead of
+producing a NaN loss. `--reference_only` permits an empty mask for inspection
+and exits after feature extraction; it still loads the pretrained model.
+
+Reports now include `direction_metrics.csv` and plots comparing fp32 soft AMF
+against the actual reference and retained mask on forward-adjacent pairs.
+Cosine +1 means aligned, −1 opposite. Zero vectors are excluded from direction
+statistics; an additional curve excludes predictions below half a patch.
+The zero-displacement MSE is a trivial diagnostic baseline, not an unguided
+generation. The all-pairs training loss and these adjacent-pair diagnostics
+are different quantities. Both can include background correspondences.
+
+Validation: `python verify_wan_schedule.py` and `python verify_motion_probe.py`.
+
+## Original probe workflow
+
 Use `motion_probes.ipynb` in the existing Colab environment, or the commands
 below. Probes are opt-in on both entry points. They leave the guidance
 objective, layers, injection flags, optimizer, and scheduler algorithm as-is.
-The existing `notebook.ipynb` and its outputs are not rewritten.
+Notebook examples preserve existing saved generation outputs.
 
 The purpose is to compare a working CogVideoX example with the Wan adaptation
 at the same stages, before concluding that AMF itself is unsuitable. Follow-
