@@ -30,14 +30,24 @@ class ControlledTransformer(CogVideoXTransformer3DModel):
         self.num_patches = post_patch_height * post_patch_width * post_time_compression_frames
 
         # Trainable position embedding
-        spatial_pos_embedding = get_3d_sincos_pos_embed(
+        pos_embed_args = (
             inner_dim,
             (post_patch_width, post_patch_height),
             post_time_compression_frames,
             spatial_interpolation_scale,
             temporal_interpolation_scale,
         )
-        spatial_pos_embedding = torch.from_numpy(spatial_pos_embedding).flatten(0, 1)
+        # diffusers >= 0.33 removed the numpy return path of get_3d_sincos_pos_embed:
+        # calling it without output_type='pt' raises a hard ValueError (the
+        # deprecation expired), and the tensor it returns needs no from_numpy.
+        # diffusers 0.30.2 (upstream's pin) has no output_type kwarg at all and
+        # returns numpy. Support both so the CogVideoX baseline and the Wan port
+        # can share one environment.
+        try:
+            spatial_pos_embedding = get_3d_sincos_pos_embed(*pos_embed_args, output_type="pt")
+        except TypeError:
+            spatial_pos_embedding = torch.from_numpy(get_3d_sincos_pos_embed(*pos_embed_args))
+        spatial_pos_embedding = spatial_pos_embedding.flatten(0, 1)
         pos_embedding = torch.zeros(1, max_text_seq_length + self.num_patches, inner_dim)
         pos_embedding.data[:, max_text_seq_length:].copy_(spatial_pos_embedding)
         self.init_pos_embedding = pos_embedding
