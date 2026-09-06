@@ -1,0 +1,374 @@
+#!/usr/bin/env python
+"""Score a sweep into a tidy CSV: one row per cell, one column per metric.
+
+Walks the run tree for `done.json`, joins each cell back to its manifest row,
+and computes metrics from the reference and generated videos sitting beside it.
+Resumable -- cells already present in the output are skipped, so a killed run
+resumes rather than restarting.
+
+    python benchmark/collect.py --runs E:/bench/runs --manifest benchmark/davis50.csv \
+        --annotations E:/DAVIS/Annotations/480p --out benchmark/scores_davis.csv
+
+Metrics, and why each is here:
+
+  mf              DiTFlow's Motion Fidelity, whole frame. Required for GATE 5
+                  (port equivalence) because it is the published number.
+  mf_masked       The same, restricted to the annotated subject. MF takes a max
+                  over every track in the frame, so with a 55x55 grid it asks
+                  "does ANY track resemble each reference track", not "does the
+                  subject move correctly". Masking removes the escape route.
+  dir_cos         Cosine between the mean net displacement of reference and
+                  generated tracks. MF is near-invariant to a global direction
+                  flip -- one correctly-moving track in 200 lifts it from -0.99
+                  to +0.99 -- so direction needs its own column or an inverted
+                  output scores as a success.
+  dir_cos_masked  The same on subject tracks only.
+  iq              CLIPScore between frames and the prompt. DiTFlow's IQ.
+  temp_cons       CLIP cosine between consecutive frames. Reported because the
+                  literature reports it; a frozen video scores ~1.0, which is
+                  what control row C1 exists to expose.
+  subject_consistency
+                  DINO cosine between the subject crop at frame 0 and every
+                  later frame, within the generated video. Not against the
+                  reference: the subject is meant to change, so reference
+                  similarity would penalise success.
+
+mf and dir_cos are deliberately separate: the pair is the evidence for whether
+the metric can see a failure a viewer can.
+"""
+
+import argparse
+import csv
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+
+
+# ------------------------------------------------------------------ metrics ---
+
+def _unit_displacements(tracks):
+    """(N,T,2) tracks -> unit per-step displacement vectors, (N,T-1,2)."""
+    d = np.diff(tracks, axis=1)
+    n = np.linalg.norm(d, axis=-1, keepdims=True)
+    return d / np.maximum(n, 1e-8)
+
+
+def motion_fidelity(ref, gen):
+    """DiTFlow's MF, reimplemented from eval/motion_fidelity_score.py.
+
+    Kept identical on purpose -- including the max over generated tracks and the
+    identity subtraction -- because GATE 5 compares against their published
+    number and a 'fixed' MF would not be the same quantity.
+    """
+    t = min(ref.shape[1], gen.shape[1])
+    d1, d2 = _unit_displacements(ref[:, :t]), _unit_displacements(gen[:, :t])
+    sim = np.einsum("ntc,mtc->nmt", d1, d2).mean(-1)
+    sim = sim - np.eye(sim.shape[0], sim.shape[1])
+    return float(sim.max(axis=1).mean())
+
+
+def direction_cosine(ref, gen):
+    """Cosine between mean net displacement of the two track sets.
+
+    Net rather than per-step: a subject that moves out and back has near-zero
+    net displacement, and so does its match, which is the honest answer. Per-step
+    means would cancel direction entirely.
+    """
+    a = (ref[:, -1] - ref[:, 0]).mean(axis=0)
+    b = (gen[:, -1] - gen[:, 0]).mean(axis=0)
+    na, nb = np.linalg.norm(a), np.linalg.norm(b)
+    if na < 1e-6 or nb < 1e-6:
+        return float("nan")          # no net motion -- direction is undefined
+    return float(np.dot(a, b) / (na * nb))
+
+
+# ------------------------------------------------------------------- inputs ---
+
+def read_frames(path):
+    import imageio.v3 as iio
+    return np.stack([np.asarray(f)[..., :3] for f in iio.imiter(str(path), plugin="FFMPEG")])
+
+
+def subject_mask(ann_dir, clip_id, size):
+    """First-frame binary mask of all annotated instances, resized to `size`.
+
+    CoTracker seeds its grid from frame 0, so only that frame's mask matters.
+    DAVIS annotates at 854x480 while the videos are resized to 720x480, hence
+    the resize -- a mask at the wrong scale silently seeds tracks off-subject.
+    """
+    from PIL import Image
+    p = Path(ann_dir) / clip_id / "00000.png"
+    if not p.exists():
+        return None
+    m = Image.open(p).resize(size, Image.NEAREST)
+    return (np.array(m) > 0).astype(np.uint8)
+
+
+def crop_to_mask(frames, mask, size=224):
+    """Crop every frame to the mask's bounding box, resized. None if too small."""
+    from PIL import Image
+    ys, xs = np.nonzero(mask)
+    if len(xs) < 16:
+        return None
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    return [np.asarray(Image.fromarray(f[y0:y1, x0:x1]).resize((size, size)))
+            for f in frames]
+
+
+# ------------------------------------------------------------------ runners ---
+
+class Tracker:
+    """CoTracker, loaded once. Pin the ref: D9 wants one tracker for all rows."""
+
+    def __init__(self, ref=None, grid_size=55, device="cuda"):
+        import torch
+        repo = "facebookresearch/co-tracker" + (f":{ref}" if ref else "")
+        if not ref:
+            print("  ! CoTracker is unpinned -- an upstream change mid-sweep "
+                  "would split MF across two trackers (see D9)")
+        self.torch = torch
+        self.grid_size = grid_size
+        self.device = device
+        self.model = torch.hub.load(repo, "cotracker3_offline").to(device)
+
+    def __call__(self, frames, mask=None):
+        t = self.torch
+        v = t.from_numpy(frames).permute(0, 3, 1, 2)[None].float().to(self.device)
+        m = None if mask is None else t.from_numpy(mask)[None][None].float().to(self.device)
+        with t.no_grad():
+            tracks, _ = self.model(v, grid_size=self.grid_size, segm_mask=m)
+        return tracks[0].cpu().numpy().transpose(1, 0, 2)   # (T,L,2) -> (L,T,2)
+
+
+class Clip:
+    def __init__(self, device="cuda", name="ViT-B/32"):
+        import clip, torch
+        self.torch, self.clip = torch, clip
+        self.model, self.preprocess = clip.load(name, device)
+        self.device = device
+
+    def _embed(self, frames):
+        from PIL import Image
+        t = self.torch
+        with t.no_grad():
+            ims = t.cat([self.preprocess(Image.fromarray(f)).unsqueeze(0)
+                         for f in frames]).to(self.device)
+            e = self.model.encode_image(ims)
+            return e / e.norm(dim=-1, keepdim=True)
+
+    def score(self, frames, prompt):
+        """CLIPScore, frame-to-prompt, averaged. DiTFlow's IQ."""
+        t = self.torch
+        with t.no_grad():
+            text = self.clip.tokenize([prompt], truncate=True).to(self.device)
+            tf = self.model.encode_text(text)
+            tf = tf / tf.norm(dim=-1, keepdim=True)
+            return float((self._embed(frames) @ tf.T).mean().item())
+
+    def subject_identity(self, frames, mask):
+        """CLIP-I: subject crop at frame 0 vs every later frame.
+
+        Same reference choice as the DINO variant -- the generated video's own
+        first frame, not the reference video's. Reported alongside DINO because
+        the two disagree often enough that one alone is a weak claim.
+        """
+        crops = crop_to_mask(frames, mask)
+        if crops is None:
+            return float("nan")
+        e = self._embed(crops)
+        return float((e[0:1] * e[1:]).sum(-1).mean().item())
+
+    def temporal_consistency(self, frames):
+        """Mean cosine between consecutive frames' embeddings.
+
+        Reported because the literature reports it, not because it discriminates:
+        a frozen video scores ~1.0. That is exactly what control row C1 is for --
+        if C1 lands within noise of the best method here, the column is dropped
+        from the main table rather than presented as competence.
+        """
+        e = self._embed(frames)
+        return float((e[:-1] * e[1:]).sum(-1).mean().item())
+
+
+class Dino:
+    """Subject consistency: does the subject stay itself across the video?
+
+    Compared against the generated video's own first frame, not the reference.
+    The subject is *supposed* to change -- that is the task -- so similarity to
+    the reference subject would penalise success. What is well defined is whether
+    whatever was generated remains coherent over time.
+    """
+
+    def __init__(self, device="cuda"):
+        import torch
+        self.torch = torch
+        self.device = device
+        self.model = torch.hub.load("facebookresearch/dino:main", "dino_vits16").to(device).eval()
+
+    def subject_consistency(self, frames, mask):
+        import torch.nn.functional as F
+        from PIL import Image
+        t = self.torch
+        crops = crop_to_mask(frames, mask)
+        if crops is None:
+            return float("nan")
+        x = t.from_numpy(np.stack(crops)).permute(0, 3, 1, 2).float().to(self.device) / 255
+        mean = t.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
+        std = t.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
+        with t.no_grad():
+            e = self.model((x - mean) / std)
+        e = F.normalize(e, dim=-1)
+        return float((e[0:1] * e[1:]).sum(-1).mean().item())
+
+
+class Lpips:
+    """Background preservation: did the scene survive the subject swap?
+
+    Unlike the subject metrics, this one *is* measured against the reference.
+    In the Subject prompt class the background wording is held byte-identical,
+    so the background is supposed to be preserved -- divergence here is
+    shape-support leakage, which is the known distortion mode.
+
+    The subject region is zeroed in both images before comparison. That
+    introduces an edge, but an identical edge in both, so it contributes to
+    neither's advantage. Cropping instead would change the receptive field per
+    clip, which is worse.
+    """
+
+    def __init__(self, device="cuda"):
+        import lpips, torch
+        self.torch = torch
+        self.device = device
+        self.model = lpips.LPIPS(net="alex").to(device)
+
+    def background(self, ref, gen, mask):
+        t = self.torch
+        keep = (1 - mask)[None, :, :, None]
+        n = min(len(ref), len(gen))
+        a = t.from_numpy((ref[:n] * keep).astype(np.float32)).permute(0, 3, 1, 2)
+        b = t.from_numpy((gen[:n] * keep).astype(np.float32)).permute(0, 3, 1, 2)
+        a = (a / 127.5 - 1).to(self.device)
+        b = (b / 127.5 - 1).to(self.device)
+        with t.no_grad():
+            return float(self.model(a, b).mean().item())
+
+
+# --------------------------------------------------------------------- main ---
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--runs", required=True, help="sweep output root")
+    ap.add_argument("--manifest", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--annotations", help="DAVIS Annotations/480p, for masked metrics")
+    ap.add_argument("--cotracker-ref", help="pin CoTracker to a commit or tag")
+    ap.add_argument("--grid-size", type=int, default=55, help="DiTFlow uses 55")
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--limit", type=int, help="score at most N cells then stop")
+    ap.add_argument("--no-iq", action="store_true", help="skip CLIP metrics")
+    ap.add_argument("--no-dino", action="store_true",
+                    help="skip subject consistency (needs --annotations)")
+    ap.add_argument("--no-lpips", action="store_true",
+                    help="skip background LPIPS (needs --annotations)")
+    args = ap.parse_args()
+
+    rows = list(csv.DictReader(open(args.manifest, newline="", encoding="utf-8")))
+    by_key = {(r["clip_id"], r["prompt_id"]): r for r in rows}
+
+    cells = sorted(p.parent for p in Path(args.runs).rglob("done.json"))
+    if not cells:
+        sys.exit(f"no completed cells under {args.runs}")
+
+    out = Path(args.out)
+    scored, fieldnames = set(), None
+    if out.exists():
+        prev = list(csv.DictReader(open(out, newline="", encoding="utf-8")))
+        scored = {r["cell"] for r in prev}
+        fieldnames = list(prev[0]) if prev else None
+        print(f"{len(scored)} cells already scored in {out}")
+
+    todo = []
+    for d in cells:
+        meta = json.loads((d / "done.json").read_text(encoding="utf-8"))
+        if meta["cell"] in scored:
+            continue
+        key = (meta["clip_id"], meta["prompt_id"])
+        if key not in by_key:
+            continue                      # cell from a different manifest
+        todo.append((d, meta, by_key[key]))
+    if args.limit:
+        todo = todo[:args.limit]
+    print(f"{len(cells)} cells found, {len(todo)} to score")
+    if not todo:
+        return
+
+    tracker = Tracker(args.cotracker_ref, args.grid_size, args.device)
+    clip = None if args.no_iq else Clip(args.device)
+    dino = None if (args.no_dino or not args.annotations) else Dino(args.device)
+    lp = None
+    if args.annotations and not args.no_lpips:
+        try:
+            lp = Lpips(args.device)
+        except ImportError:
+            print('  ! lpips not installed -- skipping background LPIPS')
+
+    results = []
+    for i, (d, meta, row) in enumerate(todo, 1):
+        print(f"[{i}/{len(todo)}] {meta['cell']}", flush=True)
+        try:
+            ref = read_frames(d / "original.mp4")
+            gen = read_frames(d / "results.mp4")
+        except Exception as e:
+            print(f"    skipped: {type(e).__name__}: {e}")
+            continue
+
+        h, w = ref.shape[1:3]
+        rt, gt = tracker(ref), tracker(gen)
+        rec = {
+            "cell": meta["cell"], "run_tag": meta["cell"].split("/")[0],
+            "split": row["split"], "clip_id": meta["clip_id"],
+            "prompt_id": meta["prompt_id"], "config": meta["config"],
+            "seed": meta["seed"], "prompt": row["prompt"],
+            "elapsed_s": meta.get("elapsed_s"),
+            "mf": motion_fidelity(rt, gt),
+            "dir_cos": direction_cosine(rt, gt),
+        }
+        # Carry stratification columns through so grouping needs no second join.
+        for col in ("cam_band", "subjects", "n_salient_moving", "cam_path_len"):
+            if col in row:
+                rec[col] = row[col]
+
+        mask = subject_mask(args.annotations, meta["clip_id"], (w, h)) if args.annotations else None
+        if mask is not None and mask.any():
+            rtm, gtm = tracker(ref, mask), tracker(gen, mask)
+            rec["mf_masked"] = motion_fidelity(rtm, gtm)
+            rec["dir_cos_masked"] = direction_cosine(rtm, gtm)
+            if dino:
+                rec["subject_consistency"] = dino.subject_consistency(gen, mask)
+            if clip:
+                rec["clip_i_subject"] = clip.subject_identity(gen, mask)
+            if lp:
+                rec["lpips_bg"] = lp.background(ref, gen, mask)
+
+        if clip:
+            rec["iq"] = clip.score(gen, row["prompt"])
+            rec["temp_cons"] = clip.temporal_consistency(gen)
+
+        results.append(rec)
+        fieldnames = fieldnames or list(rec)
+        with open(out, "a" if scored or out.exists() else "w",
+                  newline="", encoding="utf-8") as f:
+            w_ = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            if f.tell() == 0:
+                w_.writeheader()
+            w_.writerow(rec)
+        scored.add(rec["cell"])
+
+    print(f"\nscored {len(results)} cells -> {out}")
+
+
+if __name__ == "__main__":
+    main()
