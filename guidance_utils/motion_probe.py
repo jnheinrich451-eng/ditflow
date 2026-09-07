@@ -20,6 +20,8 @@ from omegaconf import OmegaConf
 
 def add_probe_arguments(parser):
     parser.add_argument("--probe", action="store_true", help="Save detached motion diagnostics")
+    parser.add_argument("--probe_rope", action="store_true",
+                        help="Wan: compare native QK before RoPE, with temporal/spatial RoPE, and full RoPE")
     parser.add_argument("--probe_blocks", type=int, nargs="+", default=None,
                         help="Observed blocks only; does not change guidance/injection blocks")
     parser.add_argument("--probe_steps", type=int, nargs="+", default=[0, 1, 4, 9, 10, 19, 29, 39, 49],
@@ -27,7 +29,9 @@ def add_probe_arguments(parser):
 
 
 def probe_config(args):
-    return {name: getattr(args, name) for name in ("probe", "probe_blocks", "probe_steps")}
+    result = {name: getattr(args, name) for name in ("probe", "probe_blocks", "probe_steps", "probe_rope")}
+    result["probe"] = result["probe"] or result["probe_rope"]
+    return result
 
 
 def _json_safe(value):
@@ -99,8 +103,11 @@ class MotionProbe:
         self.enabled = bool(owner.config.get("probe", False))
         self.context = None
         self.blocks = []
+        self.rope_enabled = self.enabled and bool(owner.config.get("probe_rope", False))
         if not self.enabled:
             return
+        if self.rope_enabled and model != "wan":
+            raise ValueError('--probe_rope currently supports Wan only')
         self.model = model
         if owner.config.loss_type != "flow":
             raise ValueError("Motion probes currently support --loss_type flow")
@@ -206,6 +213,39 @@ class MotionProbe:
             np.savez_compressed(self.path / filename, flow=flow.detach().float().cpu().numpy(),
                                 mask=mask.detach().cpu().numpy())
             self.emit("training_reference", block=block, file=filename, kept_fraction=mask.float().mean().item())
+
+    @torch.no_grad()
+    def rope_attention(self, block, pre_q, pre_k, full_q, full_k, injected=False):
+        """Ablate only this block's rotation in detached diagnostics, before KV injection.
+
+        Earlier blocks still used normal RoPE. These are not RoPE-free model
+        forwards and do not alter the actual attention or optimization path.
+        """
+        if not self.rope_enabled or self.context is None or ('rope:' + block) in self.context['seen']:
+            return
+        self.context['seen'].add('rope:' + block)
+        # Wan partitions each head into time, height, width channel groups.
+        spatial_dim = 2 * (pre_q.shape[-1] // 6)
+        temporal_dim = pre_q.shape[-1] - 2 * spatial_dim
+        variants = {
+            'pre_rope': (pre_q, pre_k),
+            'temporal_only': (torch.cat((full_q[..., :temporal_dim], pre_q[..., temporal_dim:]), -1),
+                              torch.cat((full_k[..., :temporal_dim], pre_k[..., temporal_dim:]), -1)),
+            'spatial_only': (torch.cat((pre_q[..., :temporal_dim], full_q[..., temporal_dim:]), -1),
+                             torch.cat((pre_k[..., :temporal_dim], full_k[..., temporal_dim:]), -1)),
+            'full_rope': (full_q, full_k),
+        }
+        for variant, (q, k) in variants.items():
+            data = adjacent_attention(q, k, self.h, self.w, self.frames, self.temperature)
+            self.serial += 1
+            filename = f'rope_{self.serial:05d}_{block}_{variant}.npz'
+            np.savez_compressed(self.path / filename, **data)
+            self.emit('rope_attention', block=block, variant=variant, file=filename,
+                      key_source='native_before_injection', actual_attention_injected=bool(injected),
+                      temporal_dim=temporal_dim, spatial_axis_dim=spatial_dim,
+                      mean_confidence=float(data['confidence'].mean()), mean_entropy=float(data['entropy'].mean()),
+                      zero_hard_fraction=float((np.linalg.norm(data['hard'], axis=-1) == 0).mean()),
+                      hard_pairs=flow_summary(data['hard'], self.h, self.w))
 
     @torch.no_grad()
     def training_flow(self, block, flow, reference, mask, loss):

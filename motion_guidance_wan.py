@@ -384,6 +384,12 @@ class WanGuidance(nn.Module):
         latents_std = latents_std.to(latents.device, latents.dtype)
         latents = (latents - latents_mean) / latents_std
 
+        if self.probe.rope_enabled:
+            delta = latents[:, :, 1:].float() - latents[:, :, :-1].float()
+            self.probe.emit('reference_latents',
+                            frame_rms=latents.float().square().mean(dim=(0, 1, 3, 4)).sqrt().cpu().tolist(),
+                            adjacent_change_rms=delta.square().mean(dim=(0, 1, 3, 4)).sqrt().cpu().tolist())
+
         # (B, C, F, H, W) -- no permute, unlike CogVideoX.
         return latents.to(self.dtype)
 

@@ -82,7 +82,9 @@ class ProbeTests(unittest.TestCase):
         baseline = model(baseline_x, **kwargs)[0]
         baseline.square().mean().backward()
         with tempfile.TemporaryDirectory() as root:
-            probe = MotionProbe(owner_for(model, root), "wan")
+            owner = owner_for(model, root)
+            owner.config.probe_rope = True
+            probe = MotionProbe(owner, "wan")
             for checkpoint in (False, True):
                 if checkpoint:
                     model.enable_gradient_checkpointing()
@@ -156,6 +158,7 @@ class ProbeTests(unittest.TestCase):
                 g = WanGuidance.__new__(WanGuidance)
                 torch.nn.Module.__init__(g)
                 g.config = OmegaConf.create(dict(probe=enabled, probe_blocks=[0, 1, 2], probe_steps=[0],
+                                                probe_rope=enabled,
                                                 guidance_blocks=[1], injection_blocks=[0], loss_type="flow",
                                                 motion_temp=2, softmax_fp32=True, argmax_motion_flow=True,
                                                 threshloss=False, optimization_steps=2, verbose=False,
@@ -202,6 +205,8 @@ class ProbeTests(unittest.TestCase):
                     self.assertTrue(any(e.get("stage") == "reference" and e.get("block") == "block_2_attn1_processor" for e in events))
                     self.assertFalse(any(e.get("stage") == "guidance" and e.get("block") == "block_2_attn1_processor" for e in events))
                     self.assertTrue(any(e.get("stage") == "denoise_cond" and e.get("injected") for e in events))
+                    self.assertTrue(any(e['kind'] == 'rope_attention' and e['actual_attention_injected']
+                                        and e['key_source'] == 'native_before_injection' for e in events))
         torch.testing.assert_close(outputs[0], outputs[1], rtol=0, atol=0)
 
 

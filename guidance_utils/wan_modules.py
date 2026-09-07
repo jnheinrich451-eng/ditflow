@@ -82,10 +82,19 @@ class WanInjectionProcessor:
         key = key.unflatten(2, (attn.heads, -1))
         value = value.unflatten(2, (attn.heads, -1))
 
+        probe_rope = (not attn.is_cross_attention and self.motion_probe is not None
+                      and self.motion_probe.rope_enabled and self.motion_probe.context is not None)
+        if probe_rope:
+            pre_query, pre_key = query, key
+
         if rotary_emb is not None:
             q_rope, k_rope = _as_qk_rope(rotary_emb)
             query = apply_rotary_emb(query, *q_rope)
             key = apply_rotary_emb(key, *k_rope)
+
+        if probe_rope:
+            self.motion_probe.rope_attention(self.block_name, pre_query, pre_key, query, key,
+                                             injected=self.inject_kv and self.key is not None)
 
         # Guidance hooks. Self-attention only -- attn2 carries no motion signal
         # and its key/value come from text, so injecting there is meaningless.
