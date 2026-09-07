@@ -166,6 +166,70 @@ def zip_results(output_dir="results_wan", zip_path=None, download=True, include_
     return archive
 
 
+def export_probe_archive(archive, save_to_drive=True, drive_subdir="ditflow_probes",
+                         mount_point="/content/drive"):
+    """Offer a browser download and optionally persist a ZIP in mounted Drive.
+
+    Drive copies get a unique name on collision. The Drive link opens My Drive;
+    it is not a public file-sharing URL. Outside Colab, display a Jupyter FileLink.
+    """
+    from IPython.display import HTML, FileLink, display
+
+    src = Path(archive).resolve()
+    if not src.is_file():
+        raise FileNotFoundError(src)
+    print(f"ZIP: {src.name} ({src.stat().st_size / 1024**2:.1f} MB)")
+    result = {"local_path": str(src), "drive_path": None}
+    try:
+        from google.colab import drive, files
+    except ImportError:
+        display(FileLink(os.path.relpath(src), result_html_prefix="Download ZIP: "))
+        if save_to_drive:
+            print("Drive copy is available when this cell runs in Colab.")
+        return result
+
+    # Explicit click permits retrying a download without rebuilding the ZIP.
+    try:
+        import ipywidgets as widgets
+    except ImportError:
+        print("Browser download command: from google.colab import files; "
+              f"files.download({str(src)!r})")
+    else:
+        button = widgets.Button(description="Download ZIP", icon="download")
+        output = widgets.Output()
+
+        def download_clicked(_):
+            with output:
+                output.clear_output()
+                files.download(str(src))
+
+        button.on_click(download_clicked)
+        display(button, output)
+
+    if save_to_drive:
+        relative = Path(drive_subdir)
+        if relative.is_absolute() or '..' in relative.parts:
+            raise ValueError('drive_subdir must be a relative folder within MyDrive')
+        my_drive = Path(mount_point) / 'MyDrive'
+        if not my_drive.is_dir():
+            drive.mount(str(mount_point))
+        if not my_drive.is_dir():
+            raise RuntimeError('Google Drive did not mount; use Download ZIP or retry the export cell')
+        destination = my_drive / relative
+        destination.mkdir(parents=True, exist_ok=True)
+        target = destination / src.name
+        counter = 1
+        while target.exists():
+            target = destination / f'{src.stem}_{counter}{src.suffix}'
+            counter += 1
+        shutil.copy2(src, target)
+        result['drive_path'] = str(target)
+        print(f"Saved to Google Drive: My Drive/{relative.as_posix()}/{target.name}")
+        display(HTML('<a href="https://drive.google.com/drive/my-drive" target="_blank" '
+                     'rel="noopener noreferrer">Open Google Drive</a>'))
+    return result
+
+
 def save_to_drive(output_dir="results_wan", drive_subdir="ditflow_wan"):
     """Copy a run directory to Google Drive, which survives runtime recycling."""
     from google.colab import drive  # noqa: PLC0415

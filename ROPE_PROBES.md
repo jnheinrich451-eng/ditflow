@@ -11,6 +11,14 @@ Colab installation/restart. The section is self-contained and initially selects
 Lucia. It loads pretrained Wan once, extracts five references, then builds an
 HTML report and downloadable evidence ZIP. It performs no denoising generation.
 
+The archive cell saves the ZIP to **My Drive / ditflow_probes** by default,
+mounting Google Drive if needed. It also displays a **Download ZIP** button and
+an **Open Google Drive** link. Set `SAVE_ROPE_ZIP_TO_DRIVE = False` for browser
+download only. Repeated exports keep existing Drive copies and choose a new
+filename. Drive storage is private to your account; the link opens My Drive,
+not a public shared-file URL. Only the archive cell needs rerunning to export
+an already completed suite.
+
 ```sh
 python verify_wan_rope.py
 python verify_motion_probe.py

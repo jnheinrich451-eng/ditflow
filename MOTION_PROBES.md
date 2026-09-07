@@ -1,5 +1,11 @@
 # Investigating the Wan DiTFlow port
 
+Archive cells in both notebooks now save to **My Drive / ditflow_probes** by
+default and display a **Download ZIP** button. Set `SAVE_PROBE_ZIP_TO_DRIVE = False`
+for browser download only. The RoPE archive uses `SAVE_ROPE_ZIP_TO_DRIVE`.
+Only rerun the archive cell to export existing results; generation is not needed.
+Google Drive mounting may ask you to connect your account in Colab.
+
 ## Schedule fixes and persistence experiments
 
 In `notebook.ipynb`, use **Wan schedule fixes: baseline and motion-persistence
