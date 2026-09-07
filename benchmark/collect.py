@@ -120,7 +120,14 @@ def crop_to_mask(frames, mask, size=224):
 # ------------------------------------------------------------------ runners ---
 
 class Tracker:
-    """CoTracker, loaded once. Pin the ref: D9 wants one tracker for all rows."""
+    """CoTracker, loaded once. Pin the ref: D9 wants one tracker for all rows.
+
+    Caches by video content hash. Every config of a clip writes its own
+    original.mp4, but they are the same reference through the same resize -- so
+    without a cache the reference is re-tracked once per config. On a 6-config
+    grid that is 12 tracker calls per clip where 7 suffice, and tracking is the
+    entire cost of scoring.
+    """
 
     def __init__(self, ref=None, grid_size=55, device="cuda"):
         import torch
@@ -132,14 +139,25 @@ class Tracker:
         self.grid_size = grid_size
         self.device = device
         self.model = torch.hub.load(repo, "cotracker3_offline").to(device)
+        self._cache = {}
+        self.calls = self.hits = 0
 
     def __call__(self, frames, mask=None):
+        import hashlib
+        key = (hashlib.sha1(frames.tobytes()).hexdigest(),
+               None if mask is None else hashlib.sha1(mask.tobytes()).hexdigest())
+        if key in self._cache:
+            self.hits += 1
+            return self._cache[key]
+        self.calls += 1
         t = self.torch
         v = t.from_numpy(frames).permute(0, 3, 1, 2)[None].float().to(self.device)
         m = None if mask is None else t.from_numpy(mask)[None][None].float().to(self.device)
         with t.no_grad():
             tracks, _ = self.model(v, grid_size=self.grid_size, segm_mask=m)
-        return tracks[0].cpu().numpy().transpose(1, 0, 2)   # (T,L,2) -> (L,T,2)
+        out = tracks[0].cpu().numpy().transpose(1, 0, 2)    # (T,L,2) -> (L,T,2)
+        self._cache[key] = out
+        return out
 
 
 class Clip:
@@ -268,6 +286,12 @@ def main():
     ap.add_argument("--grid-size", type=int, default=55, help="DiTFlow uses 55")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, help="score at most N cells then stop")
+    ap.add_argument("--control", choices=["c1"],
+                    help="score a control row instead of the generated videos. "
+                         "c1 = reference frame 0 held for the whole clip -- the "
+                         "degenerate floor. Any metric where c1 lands within "
+                         "noise of the best method has no dynamic range and "
+                         "leaves the main table")
     ap.add_argument("--no-iq", action="store_true", help="skip CLIP metrics")
     ap.add_argument("--no-dino", action="store_true",
                     help="skip subject consistency (needs --annotations)")
@@ -290,14 +314,22 @@ def main():
         fieldnames = list(prev[0]) if prev else None
         print(f"{len(scored)} cells already scored in {out}")
 
-    todo = []
+    todo, seen = [], set()
     for d in cells:
         meta = json.loads((d / "done.json").read_text(encoding="utf-8"))
-        if meta["cell"] in scored:
-            continue
         key = (meta["clip_id"], meta["prompt_id"])
         if key not in by_key:
             continue                      # cell from a different manifest
+        if args.control:
+            # One control row per (clip, prompt): C1 does not depend on which
+            # method produced the cell, only on the reference beside it.
+            if key in seen:
+                continue
+            seen.add(key)
+            meta = dict(meta, config=args.control.upper(),
+                        cell="/".join((args.control.upper(),) + key))
+        if meta["cell"] in scored:
+            continue
         todo.append((d, meta, by_key[key]))
     if args.limit:
         todo = todo[:args.limit]
@@ -324,6 +356,11 @@ def main():
         except Exception as e:
             print(f"    skipped: {type(e).__name__}: {e}")
             continue
+
+        if args.control == "c1":
+            # The degenerate video: nothing moves. Scored through the identical
+            # path as every method, so the comparison is like for like.
+            gen = np.repeat(ref[:1], len(ref), axis=0)
 
         h, w = ref.shape[1:3]
         rt, gt = tracker(ref), tracker(gen)
@@ -368,6 +405,9 @@ def main():
         scored.add(rec["cell"])
 
     print(f"\nscored {len(results)} cells -> {out}")
+    total = tracker.calls + tracker.hits
+    print(f"tracker: {tracker.calls} calls, {tracker.hits} served from cache "
+          f"({100 * tracker.hits / max(1, total):.0f}% saved)")
 
 
 if __name__ == "__main__":
