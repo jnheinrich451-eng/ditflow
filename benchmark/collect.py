@@ -41,6 +41,7 @@ import argparse
 import csv
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -86,9 +87,23 @@ def direction_cosine(ref, gen):
 
 # ------------------------------------------------------------------- inputs ---
 
-def read_frames(path):
+def read_frames(path, scratch=None):
+    """Decode a video to (T,H,W,3).
+
+    Copies to local disk first when `scratch` is given. The run tree usually
+    lives on a Drive FUSE mount, and streaming a decode off it can stall
+    indefinitely -- a whole-file copy either succeeds or raises, which is a
+    failure mode you can see and retry.
+    """
     import imageio.v3 as iio
-    return np.stack([np.asarray(f)[..., :3] for f in iio.imiter(str(path), plugin="FFMPEG")])
+    src = Path(path)
+    if scratch:
+        import shutil
+        local = Path(scratch) / src.name
+        shutil.copyfile(src, local)
+        src = local
+    return np.stack([np.asarray(f)[..., :3]
+                     for f in iio.imiter(str(src), plugin="FFMPEG")])
 
 
 def subject_mask(ann_dir, clip_id, size):
@@ -104,6 +119,25 @@ def subject_mask(ann_dir, clip_id, size):
         return None
     m = Image.open(p).resize(size, Image.NEAREST)
     return (np.array(m) > 0).astype(np.uint8)
+
+
+def write_csv(path, rows_by_cell):
+    """Rewrite the whole file, union of every row's columns.
+
+    Whole-file rather than append: the header is fixed at first write, so a
+    later run adding masked columns could neither widen it nor update a row
+    without duplicating it. Called every --flush-every cells, because `path` is
+    usually on a Drive FUSE mount where each write costs real latency.
+    """
+    cols = []
+    for r in rows_by_cell.values():
+        for k in r:
+            if k not in cols:
+                cols.append(k)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=cols, restval="")
+        w.writeheader()
+        w.writerows(rows_by_cell.values())
 
 
 def crop_to_mask(frames, mask, size=224):
@@ -293,11 +327,19 @@ def main():
                          "noise of the best method has no dynamic range and "
                          "leaves the main table")
     ap.add_argument("--no-iq", action="store_true", help="skip CLIP metrics")
+    ap.add_argument("--scratch", default="/content/scratch",
+                    help="local dir to copy videos through; '' to read "
+                         "the run tree directly")
+    ap.add_argument("--flush-every", type=int, default=10,
+                    help="rewrite the CSV every N cells (Drive writes are slow)")
     ap.add_argument("--no-dino", action="store_true",
                     help="skip subject consistency (needs --annotations)")
     ap.add_argument("--no-lpips", action="store_true",
                     help="skip background LPIPS (needs --annotations)")
     args = ap.parse_args()
+
+    if args.scratch:
+        Path(args.scratch).mkdir(parents=True, exist_ok=True)
 
     rows = list(csv.DictReader(open(args.manifest, newline="", encoding="utf-8")))
     by_key = {(r["clip_id"], r["prompt_id"]): r for r in rows}
@@ -373,10 +415,17 @@ def main():
 
     results = []
     for i, (d, meta, row) in enumerate(todo, 1):
-        print(f"[{i}/{len(todo)}] {meta['cell']}", flush=True)
+        t0 = time.time()
+        print(f"[{i}/{len(todo)}] {meta['cell']}", end="", flush=True)
+
+        def step(name):
+            # Printed as it starts, so a hang names the stage it hung in
+            # instead of leaving the whole cell as the suspect.
+            print(f" .{name}", end="", flush=True)
         try:
-            ref = read_frames(d / "original.mp4")
-            gen = read_frames(d / "results.mp4")
+            step("read")
+            ref = read_frames(d / "original.mp4", args.scratch)
+            gen = read_frames(d / "results.mp4", args.scratch)
         except Exception as e:
             print(f"    skipped: {type(e).__name__}: {e}")
             continue
@@ -387,6 +436,7 @@ def main():
             gen = np.repeat(ref[:1], len(ref), axis=0)
 
         h, w = ref.shape[1:3]
+        step("track")
         rt, gt = tracker(ref), tracker(gen)
         rec = {
             "cell": meta["cell"], "run_tag": meta["cell"].split("/")[0],
@@ -404,6 +454,7 @@ def main():
 
         mask = subject_mask(args.annotations, meta["clip_id"], (w, h)) if args.annotations else None
         if mask is not None and mask.any():
+            step("track-masked")
             rtm, gtm = tracker(ref, mask), tracker(gen, mask)
             rec["mf_masked"] = motion_fidelity(rtm, gtm)
             rec["dir_cos_masked"] = direction_cosine(rtm, gtm)
@@ -415,24 +466,29 @@ def main():
                 rec["lpips_bg"] = lp.background(ref, gen, mask)
 
         if clip:
+            step("clip")
             rec["iq"] = clip.score(gen, row["prompt"])
             rec["temp_cons"] = clip.temporal_consistency(gen)
 
+        el = time.time() - t0
+        done_n = i
+        eta = el * (len(todo) - i) / 60
+        print(f"  {el:.0f}s  (eta {eta:.0f} min)", flush=True)
         results.append(rec)
         # Merge over any earlier row for this cell, so re-running with more
         # metrics updates in place instead of appending a second row.
         existing[rec["cell"]] = {**existing.get(rec["cell"], {}), **rec}
-        cols = []
-        for r in existing.values():
-            for k in r:
-                if k not in cols:
-                    cols.append(k)
-        with open(out, "w", newline="", encoding="utf-8") as f:
-            w_ = csv.DictWriter(f, fieldnames=cols, restval="")
-            w_.writeheader()
-            w_.writerows(existing.values())
         scored.add(rec["cell"])
+        # Flush periodically, not every cell: `out` is usually on a Drive FUSE
+        # mount where each write costs a second or two of latency, and the whole
+        # file is rewritten to let the header widen.
+        if i % args.flush_every == 0 or i == len(todo):
+            write_csv(out, existing)
 
+    # Ctrl-C, a recycled runtime or a decode error on the last cell would
+    # otherwise discard up to --flush-every scored cells. Tracking is the whole
+    # cost here, so losing nine of them is an hour.
+    write_csv(out, existing)
     print(f"\nscored {len(results)} cells -> {out}")
     total = tracker.calls + tracker.hits
     print(f"tracker: {tracker.calls} calls, {tracker.hits} served from cache "
