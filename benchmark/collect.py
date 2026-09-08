@@ -307,12 +307,36 @@ def main():
         sys.exit(f"no completed cells under {args.runs}")
 
     out = Path(args.out)
-    scored, fieldnames = set(), None
+    # What this invocation will produce. A cell counts as done only if the CSV
+    # already has ALL of these for it -- otherwise re-running with --annotations
+    # to add the masked columns would skip every cell as "already scored" and
+    # silently do nothing, which is exactly what resuming on the cell key alone
+    # caused.
+    expected = ["mf", "dir_cos"]
+    if args.annotations:
+        expected += ["mf_masked", "dir_cos_masked"]
+        if not args.no_dino:
+            expected.append("subject_consistency")
+        if not args.no_lpips:
+            expected.append("lpips_bg")
+    if not args.no_iq:
+        expected += ["iq", "temp_cons"]
+        if args.annotations:
+            expected.append("clip_i_subject")
+
+    # Existing results are held by cell and the whole file is rewritten after
+    # each one. Appending would be cheaper, but the header is fixed at first
+    # write, so a later run adding masked columns could neither widen it nor
+    # update a row without duplicating it.
+    existing = {}
     if out.exists():
-        prev = list(csv.DictReader(open(out, newline="", encoding="utf-8")))
-        scored = {r["cell"] for r in prev}
-        fieldnames = list(prev[0]) if prev else None
-        print(f"{len(scored)} cells already scored in {out}")
+        for r in csv.DictReader(open(out, newline="", encoding="utf-8")):
+            existing[r["cell"]] = r
+    scored = {c for c, r in existing.items()
+              if all((r.get(m) or "").strip() for m in expected)}
+    if existing:
+        print(f"{len(existing)} rows in {out}; {len(scored)} already complete "
+              f"for this metric set ({', '.join(expected)})")
 
     todo, seen = [], set()
     for d in cells:
@@ -395,13 +419,18 @@ def main():
             rec["temp_cons"] = clip.temporal_consistency(gen)
 
         results.append(rec)
-        fieldnames = fieldnames or list(rec)
-        with open(out, "a" if scored or out.exists() else "w",
-                  newline="", encoding="utf-8") as f:
-            w_ = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-            if f.tell() == 0:
-                w_.writeheader()
-            w_.writerow(rec)
+        # Merge over any earlier row for this cell, so re-running with more
+        # metrics updates in place instead of appending a second row.
+        existing[rec["cell"]] = {**existing.get(rec["cell"], {}), **rec}
+        cols = []
+        for r in existing.values():
+            for k in r:
+                if k not in cols:
+                    cols.append(k)
+        with open(out, "w", newline="", encoding="utf-8") as f:
+            w_ = csv.DictWriter(f, fieldnames=cols, restval="")
+            w_.writeheader()
+            w_.writerows(existing.values())
         scored.add(rec["cell"])
 
     print(f"\nscored {len(results)} cells -> {out}")
