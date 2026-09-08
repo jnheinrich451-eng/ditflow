@@ -436,36 +436,47 @@ def main():
             gen = np.repeat(ref[:1], len(ref), axis=0)
 
         h, w = ref.shape[1:3]
-        step("track")
-        rt, gt = tracker(ref), tracker(gen)
+        prior = existing.get(meta["cell"], {})
+        need = {m for m in expected if not (prior.get(m) or "").strip()}
+
         rec = {
             "cell": meta["cell"], "run_tag": meta["cell"].split("/")[0],
             "split": row["split"], "clip_id": meta["clip_id"],
             "prompt_id": meta["prompt_id"], "config": meta["config"],
             "seed": meta["seed"], "prompt": row["prompt"],
             "elapsed_s": meta.get("elapsed_s"),
-            "mf": motion_fidelity(rt, gt),
-            "dir_cos": direction_cosine(rt, gt),
         }
+        # Only compute what is missing. A second pass adding masked columns
+        # would otherwise redo the two unmasked tracker calls -- the most
+        # expensive step -- for values already sitting in the CSV.
+        if need & {"mf", "dir_cos"}:
+            step("track")
+            rt, gt = tracker(ref), tracker(gen)
+            rec["mf"] = motion_fidelity(rt, gt)
+            rec["dir_cos"] = direction_cosine(rt, gt)
         # Carry stratification columns through so grouping needs no second join.
         for col in ("cam_band", "subjects", "n_salient_moving", "cam_path_len"):
             if col in row:
                 rec[col] = row[col]
 
-        mask = subject_mask(args.annotations, meta["clip_id"], (w, h)) if args.annotations else None
+        mask = (subject_mask(args.annotations, meta["clip_id"], (w, h))
+                if args.annotations else None)
         if mask is not None and mask.any():
-            step("track-masked")
-            rtm, gtm = tracker(ref, mask), tracker(gen, mask)
-            rec["mf_masked"] = motion_fidelity(rtm, gtm)
-            rec["dir_cos_masked"] = direction_cosine(rtm, gtm)
-            if dino:
+            if need & {"mf_masked", "dir_cos_masked"}:
+                step("track-masked")
+                rtm, gtm = tracker(ref, mask), tracker(gen, mask)
+                rec["mf_masked"] = motion_fidelity(rtm, gtm)
+                rec["dir_cos_masked"] = direction_cosine(rtm, gtm)
+            if dino and "subject_consistency" in need:
+                step("dino")
                 rec["subject_consistency"] = dino.subject_consistency(gen, mask)
-            if clip:
+            if clip and "clip_i_subject" in need:
                 rec["clip_i_subject"] = clip.subject_identity(gen, mask)
-            if lp:
+            if lp and "lpips_bg" in need:
+                step("lpips")
                 rec["lpips_bg"] = lp.background(ref, gen, mask)
 
-        if clip:
+        if clip and need & {"iq", "temp_cons"}:
             step("clip")
             rec["iq"] = clip.score(gen, row["prompt"])
             rec["temp_cons"] = clip.temporal_consistency(gen)
