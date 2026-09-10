@@ -20,10 +20,26 @@ Wan needs **diffusers >= 0.33** (0.36 verified). The `diffusers==0.30.2` pin in
 transformer forward — it does not apply here.
 
 ```
-pip install "diffusers>=0.33" "transformers>=4.44,<5" accelerate ftfy imageio imageio-ffmpeg omegaconf einops
+pip install "diffusers>=0.33" "transformers>=4.44,<5" "huggingface-hub>=0.34,<1" accelerate ftfy imageio imageio-ffmpeg omegaconf einops
 ```
 
 `transformers>=5` breaks diffusers 0.36's model imports. Pin below 5.
+
+Transformers 4.57.x also requires `huggingface-hub>=0.34,<1`; installing Hub 1.x
+separately can cause an import error before Wan loads. To repair that specific
+error in an existing notebook kernel without upgrading the model libraries:
+
+```python
+import subprocess, sys
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'huggingface-hub>=0.34,<1'])
+subprocess.check_call([sys.executable, '-c',
+    'import transformers, diffusers, huggingface_hub; '
+    'print(transformers.__version__, diffusers.__version__, huggingface_hub.__version__)'])
+```
+
+Then rerun the failed generation cell: it launches a fresh Python process and
+keeps the existing experiment plan. If using model libraries directly in the
+notebook process, restart the kernel after changing installed packages.
 
 ## Verify first
 

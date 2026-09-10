@@ -4,7 +4,8 @@ diffusers>=0.30.2   # was pinned ==0.30.2 because custom_transformer.py forked t
                     # version's get_3d_sincos_pos_embed call; it is now version-agnostic,
                     # so the CogVideoX baseline and the Wan port (needs >=0.33) can share
                     # one environment. Use >=0.33 to run both.
-transformers>=4.44.0
+transformers>=4.44.0,<5
+huggingface-hub>=0.34.0,<1.0
 accelerate>=0.33.0
 sentencepiece>=0.2.0
 SwissArmyTransformer>=0.4.12
