@@ -1,5 +1,21 @@
 # DiTFlow for Wan2.1 T2V
 
+The notebook section **Next generation test: early versus later AMF guidance**
+runs four paired generations: car-turn/camel, each with sampling indices 0–9 or
+20–29. It uses uniform AMF at block 10, cap 100, seed 1, no KV injection, and five
+Adam updates per active step. Both arms share the same ten-step LR sequence and
+50-update budget. The only generation-setting difference is
+`--guidance_timestep_range 50 40` versus `--guidance_timestep_range 30 20`, with
+`--lr_decay_steps 10` for both. The sampler still runs all 50 denoising steps.
+
+Run its setup, generate, compare and archive cells. Existing reference inputs are
+reused, but both generation arms run fresh. Do not update packages/code between
+arms: the setup and each run compare fresh-process environment/source fingerprints.
+Rerunning only generate resumes the plan. The comparison cell audits actual
+optimizer counts, LR values, guided sigmas and paired reference images, saving
+`timing_audit.json`. AMF probes cover both windows; intermediate decoded video
+estimates are not collected. Baseline defaults and generation code are unchanged.
+
 The notebook section **Next diagnostic: rotation, expansion and attention heads**
 tests AMF extraction without generating target videos. It reuses the
 `wan_reference_inputs` bundle for car-turn and camel and compares all individual
