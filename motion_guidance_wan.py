@@ -54,6 +54,7 @@ from guidance_utils.wan_modules import WanInjectionProcessor, WanModuleWithGuida
 from guidance_utils.wan_transformer import ControlledWanTransformer
 from guidance_utils.motion_probe import MotionProbe, add_probe_arguments, probe_config, tensor_stats, without_injection
 from guidance_utils.wan_guidance_schedule import window_indices, learning_rates
+from guidance_utils.wan_region_guidance import load_reference_regions, region_balanced_mse
 
 logging.set_verbosity_error()
 
@@ -446,6 +447,15 @@ class WanGuidance(nn.Module):
     @torch.no_grad()
     def load_attn_features(self):
         """AMF extraction from the reference video."""
+        self.motion_regions = None
+        region_directory = self.config.get('flow_region_masks')
+        if region_directory:
+            self.motion_regions, provenance = load_reference_regions(
+                region_directory, self.num_frames, self.latent_num_frames,
+                self.patches_height, self.patches_width, self.device)
+            import json
+            (Path(self.output_path) / 'region_guidance.json').write_text(json.dumps(provenance,indent=2),encoding='utf-8')
+            print('[EXPERIMENTAL] Equal subject/background AMF weighting using reference annotations')
         self._set_kv_mode(self.config.guidance_blocks, inject=False, copy=True)
         with self.probe.phase("reference"):
             self._forward_transformer(self.motion_latent, self.source_embeds, self.motion_timestep)
@@ -472,6 +482,17 @@ class WanGuidance(nn.Module):
                                      require_nonzero=self.config.threshloss)
             attn_masks[proc.block_name] = mask
             self.probe.actual_reference(proc.block_name, flow, mask)
+            if self.motion_regions is not None:
+                foreground = mask & self.motion_regions
+                background = mask & ~self.motion_regions
+                if not foreground.any() or not background.any():
+                    raise ValueError(f'{proc.block_name}: both regions must retain AMF entries')
+                if self.probe.enabled:
+                    filename = f'reference_regions_{proc.block_name}.npz'
+                    np.savez_compressed(self.probe.path / filename, foreground=self.motion_regions.cpu().numpy())
+                    self.probe.emit('reference_regions',block=proc.block_name,file=filename,
+                        subject_entries=int(foreground.sum()),background_entries=int(background.sum()),
+                        subject_weight=.5,background_weight=.5)
             if not mask.any() and not self.config.get("reference_only", False):
                 raise ValueError(
                     f"{proc.block_name}: no reference AMF entries survive the mask. "
@@ -506,7 +527,15 @@ class WanGuidance(nn.Module):
             else:
                 ref_sel, tgt_sel = ref_motion_flow, motion_flow
 
-            if self.config.get("flow_loss", "mse") == "huber":
+            if self.config.get('flow_region_masks'):
+                if self.config.get('flow_loss','mse') != 'mse':
+                    raise ValueError('Experimental region balancing currently requires --flow_loss mse')
+                attn_loss, regions = region_balanced_mse(motion_flow,ref_motion_flow,mask,self.motion_regions)
+                if self.probe.context is not None:
+                    self.probe.emit('region_loss',block=proc.block_name,
+                        **{key:float(value) if 'mse' in key else int(value) for key,value in regions.items()},
+                        balanced_loss=float(attn_loss.detach()))
+            elif self.config.get("flow_loss", "mse") == "huber":
                 # Linear beyond `delta`, so a surviving argmax outlier cannot
                 # dominate the way a squared term does.
                 attn_loss = F.huber_loss(tgt_sel, ref_sel, delta=self.config.get("huber_delta", 2.0))
@@ -779,6 +808,8 @@ def main():
                         help="Extract reference features/probes and exit before guided generation")
     parser.add_argument("--no_guidance", action="store_true")
     parser.add_argument("--no_injection", action="store_true")
+    parser.add_argument('--flow_region_masks', type=str, default=None,
+                        help='EXPERIMENTAL: aligned reference masks; equal subject/background MSE. Not the baseline.')
     parser.add_argument("--inject_embeds", action="store_true")
     parser.add_argument("--low_vram", action="store_true", help="Enable model CPU offload")
     parser.add_argument("--output_path", type=str, default="./results_wan")
@@ -787,6 +818,8 @@ def main():
     parser.add_argument("--verbose", action="store_true")
     add_probe_arguments(parser)
     opt = parser.parse_args()
+    if opt.flow_region_masks and (opt.loss_type != 'flow' or opt.no_guidance):
+        parser.error('--flow_region_masks requires AMF guidance (--loss_type flow, without --no_guidance)')
 
     config = OmegaConf.load("configs/guidance_config_wan.yaml")
     if opt.no_injection:
@@ -807,6 +840,7 @@ def main():
         "inject_embeds": opt.inject_embeds,
         "verbose": opt.verbose,
         "reference_only": opt.reference_only,
+        "flow_region_masks": opt.flow_region_masks,
     }
     for key, value in [
         ("num_frames", opt.num_frames),
@@ -832,6 +866,8 @@ def main():
     if opt.no_threshloss:
         overrides["threshloss"] = False
     config = OmegaConf.merge(config, overrides)
+    if config.flow_region_masks and config.get('flow_loss','mse') != 'mse':
+        parser.error('--flow_region_masks requires --flow_loss mse')
 
     block_key = "guidance_blocks_1_3b" if opt.model == "1.3b" else "guidance_blocks_14b"
     config["guidance_blocks"] = list(opt.guidance_blocks) if opt.guidance_blocks else list(config[block_key])
