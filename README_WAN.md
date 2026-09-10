@@ -1,5 +1,35 @@
 # DiTFlow for Wan2.1 T2V
 
+The notebook section **Next diagnostic: rotation, expansion and attention heads**
+tests AMF extraction without generating target videos. It reuses the
+`wan_reference_inputs` bundle for car-turn and camel and compares all individual
+heads with averaged logits at block 10 on known image-plane transforms.
+Run setup, probe, review and archive; rerun only probe to resume completed suites.
+
+Standalone equivalent for one clip:
+
+```bash
+python probe_wan_affine.py -v probe_runs/wan_reference_inputs/clips/car-turn \
+  --output_path probe_runs/car_affine_fresh --blocks 10 --noise_steps 0 9 29
+```
+
+The seven controls are static, left/right translation, clockwise/counterclockwise
+rotation, expansion and contraction. Clean plus three noise states means 28
+observed forwards per clip. The model loads once. Text stays blank throughout;
+optional `--prompt` changes it for every state, so use a separate output folder.
+Native RoPE remains fixed and no guidance/injection is performed. These are
+forward-noised controls, not actual generated intermediate videos.
+
+`affine_report.html` is self-contained; `metrics.csv` contains hard/soft endpoint
+errors, direction and amplitude, support counts and anchor sensitivity. Per-head
+NPZ files retain every adjacent pair, while `truth.npz` stores known flow and
+evaluation masks. `base_frame.png` and `control.json` reproduce the lossless
+synthetic inputs; the MP4s are visual previews. Metadata records package versions,
+source hashes, shared noise seed/hash and actual sigmas. Do not interpret scores
+on identical pure-noise inputs as recovered motion or select a production head
+from these two diagnostic clips alone. Passing 2D transforms does not establish
+correct 3D turns, gait or motion transfer.
+
 A port of DiTFlow to Wan2.1. **Nothing in the original CogVideoX implementation is
 modified** — `motion_guidance.py`, `guidance_utils/custom_*.py` and
 `configs/guidance_config.yaml` are untouched, so the paper baseline stays runnable
