@@ -97,6 +97,39 @@ class DirectionTests(unittest.TestCase):
             reports = pilot.audit_experiment(root)
             self.assertEqual([r['updates'] for r in reports], [0, 50, 0, 50]*2)
 
+    def test_scheduler_default_name_order_is_not_a_configuration_change(self):
+        with tempfile.TemporaryDirectory() as temp, patch('benchmark.wan_timing_pilot.decoded_digest', return_value='same'):
+            root = Path(temp); jobs, _ = self.make_runs(root)
+            originals = {}
+            for i, job in enumerate(jobs):
+                metadata = Path(job['output'])/'probes/test/metadata.json'
+                meta = json.loads(metadata.read_text())
+                names = ['shift_terminal', 'base_shift', 'invert_sigmas']
+                meta['scheduler_config']['_use_default_values'] = names if i % 2 else names[::-1]
+                metadata.write_text(json.dumps(meta))
+                originals[metadata] = metadata.read_bytes()
+            reports = pilot.audit_experiment(root)
+            self.assertEqual(len(reports), 8)
+            self.assertTrue(all(path.read_bytes() == data for path, data in originals.items()))
+
+    def test_scheduler_real_changes_still_fail_with_details(self):
+        changes = [('shift', 4), ('_use_default_values', ['base_shift']),
+                   ('disable_corrector', [1, 0]), ('_diffusers_version', 'changed')]
+        for key, value in changes:
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as temp, patch(
+                    'benchmark.wan_timing_pilot.decoded_digest', return_value='same'):
+                root = Path(temp); jobs, _ = self.make_runs(root)
+                for job in jobs:
+                    metadata = Path(job['output'])/'probes/test/metadata.json'
+                    meta = json.loads(metadata.read_text())
+                    meta['scheduler_config'].update(_use_default_values=['base_shift', 'shift_terminal'],
+                                                     disable_corrector=[0, 1], _diffusers_version='original')
+                    if job == jobs[1]:
+                        meta['scheduler_config'][key] = value
+                    metadata.write_text(json.dumps(meta))
+                with self.assertRaisesRegex(ValueError, 'scheduler_config.*' + key):
+                    pilot.audit_experiment(root)
+
     def test_reject_control_update_missing_guidance_and_wrong_prompt(self):
         for mutation in ('control_delta', 'rogue_optimizer', 'missing_guidance', 'wrong_prompt', 'nonfinite_update', 'injection'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp, patch(

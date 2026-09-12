@@ -136,6 +136,27 @@ def validate_run(job, run=None, expected_environment=None):
     return result
 
 
+def scheduler_config_differences(reference, compared):
+    """Ignore only ordering of Diffusers' set-derived default-parameter names.
+
+    Diffusers builds _use_default_values with list(set(...)), so separate Python
+    processes can serialize the same names in different orders. All other
+    fields, list orderings, and the membership of that list remain significant.
+    Neither of the original metadata dictionaries is modified.
+    """
+    def normalized(config):
+        result = dict(config)
+        defaults = result.get('_use_default_values')
+        if isinstance(defaults, list) and all(isinstance(name, str) for name in defaults):
+            result['_use_default_values'] = sorted(defaults)
+        return result
+
+    left, right = normalized(reference), normalized(compared)
+    return {key: {'reference': left.get(key, '<missing>'), 'compared': right.get(key, '<missing>')}
+            for key in sorted(left.keys() | right.keys())
+            if key not in left or key not in right or left[key] != right[key]}
+
+
 def audit_experiment(root):
     """Relocatable audit of all four conditions per clip, including unguided controls."""
     import numpy as np
@@ -172,9 +193,13 @@ def audit_experiment(root):
                 np.array_equal(a, b) for a, b in zip(*references)):
             raise ValueError(f'{clip}: guided reference AMF or learning rates differ')
         for meta in metas[1:]:
-            for key in ('packages', 'python', 'gpu', 'source_sha256', 'scheduler', 'scheduler_config', 'grid'):
+            for key in ('packages', 'python', 'gpu', 'source_sha256', 'scheduler', 'grid'):
                 if meta[key] != metas[0][key]:
                     raise ValueError(f'{clip}: different recorded {key}')
+            scheduler_changes = scheduler_config_differences(metas[0]['scheduler_config'], meta['scheduler_config'])
+            if scheduler_changes:
+                raise ValueError(f'{clip}: different recorded scheduler_config in {meta["config"].get("output_path")}: '
+                                 + json.dumps(scheduler_changes, sort_keys=True))
             allowed = {'target_prompt', 'guidance_blocks', 'output_path'}
             differences = {k for k in meta['config'].keys() | metas[0]['config'].keys()
                            if meta['config'].get(k) != metas[0]['config'].get(k)}
