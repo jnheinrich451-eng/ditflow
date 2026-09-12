@@ -19,8 +19,10 @@ DIRECTION_SUFFIXES = {
 }
 
 
-def build_jobs(rows, inputs, output):
+def build_jobs(rows, inputs, output, model='1.3b', cpu_offload=False):
     """Eight fresh runs: benchmark prompt versus direction suffix, AMF off/on."""
+    if model not in timing.MODEL_KEYS:
+        raise ValueError(f'Unsupported experiment model: {model}')
     if len(rows) != 2 or {r['clip_id'] for r in rows} != set(CASES):
         raise ValueError('Expected exactly car-turn and camel reference rows')
     jobs = []
@@ -35,6 +37,9 @@ def build_jobs(rows, inputs, output):
                 prompt = prompt.rstrip().rstrip('.') + '. ' + DIRECTION_SUFFIXES[base['clip_id']]
             destination = Path(output)/base['clip_id']/condition/'seed1'
             command = job['command']
+            command[command.index('--model') + 1] = model
+            if cpu_offload:
+                command.append('--low_vram')
             command[command.index('-p') + 1] = prompt
             command[command.index('--output_path') + 1] = str(destination)
             if not enabled:
@@ -42,7 +47,7 @@ def build_jobs(rows, inputs, output):
                 job.update(sampling_indices=[], learning_rates=[], expected_updates=0)
             job.update(method=condition, prompt_condition='aligned' if aligned else 'original',
                        amf_enabled=enabled, prompt=prompt, original_prompt=base['prompt'],
-                       output=str(destination))
+                       output=str(destination), model=model, cpu_offload=cpu_offload)
             jobs.append(job)
     return jobs
 
@@ -132,7 +137,8 @@ def validate_run(job, run=None, expected_environment=None):
         raise ValueError('Guidance optimizer produced no latent changes')
     if any(e['update']['finite_fraction'] != 1 for e in updates):
         raise ValueError('Nonfinite optimizer update')
-    result.update(prompt_condition=job['prompt_condition'], amf_enabled=job['amf_enabled'], prompt=job['prompt'])
+    result.update(prompt_condition=job['prompt_condition'], amf_enabled=job['amf_enabled'], prompt=job['prompt'],
+                  model=job.get('model', '1.3b'), cpu_offload=job.get('cpu_offload', False))
     return result
 
 
@@ -169,6 +175,8 @@ def audit_experiment(root):
     if len(jobs) != 8 or {(j['clip_id'], j['method']) for j in jobs} != {
             (clip, condition) for clip in CASES for condition in CONDITIONS}:
         raise ValueError('Expected eight distinct prompt-by-AMF conditions')
+    if len({(j.get('model', '1.3b'), j.get('cpu_offload', False)) for j in jobs}) != 1:
+        raise ValueError('Do not mix model sizes or CPU-offload settings within an experiment')
     reports = []
     for clip in CASES:
         metas, references, rates = [], [], []
@@ -215,7 +223,7 @@ def run_jobs(root, dry_run=False):
     jobs = json.loads((root/'plan.json').read_text(encoding='utf-8'))
     expected = json.loads((root/'environment.json').read_text(encoding='utf-8'))
     for job in jobs:
-        print(job['clip_id'], '|', job['method'], '|', job['prompt'], flush=True)
+        print(job.get('model', '1.3b'), '|', job['clip_id'], '|', job['method'], '|', job['prompt'], flush=True)
         if dry_run:
             print(subprocess.list2cmdline(job['command']), flush=True)
             continue

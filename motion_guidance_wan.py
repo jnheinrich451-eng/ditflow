@@ -167,9 +167,12 @@ class WanGuidance(nn.Module):
         else:
             raise ValueError(f"Unknown scheduler {config.scheduler!r}, expected 'unipc' or 'flowmatch'")
 
-        self.pipe.to(self.device)
         if config.enable_model_cpu_offload:
-            self.pipe.enable_model_cpu_offload()
+            # Install offload hooks while weights are still on CPU. Moving the
+            # full pipeline to CUDA first defeats the peak-memory saving (14B).
+            self.pipe.enable_model_cpu_offload(device=self.device)
+        else:
+            self.pipe.to(self.device)
         if hasattr(self.pipe.vae, "enable_slicing"):
             self.pipe.vae.enable_slicing()
         self.pipe.vae.enable_tiling()
@@ -271,7 +274,10 @@ class WanGuidance(nn.Module):
         self.guidance_schedule = self.timesteps[self.guidance_steps]
         self.injection_schedule = self.timesteps[self.injection_steps]
 
-        self.transformer.init_rope = self.transformer.default_rope(self.init_latents.to(self.device))
+        # default_rope bypasses the transformer's forward/offload hook. Its
+        # frequency buffers may still be on CPU; the cached tensor is used
+        # directly with CUDA Q/K later and is not a registered module buffer.
+        self.transformer.init_rope = self.transformer.default_rope(self.init_latents.to(self.device)).to(self.device)
         self.transformer.guidance_blocks = config.guidance_blocks
 
         # ---- Output paths -------------------------------------------------- #

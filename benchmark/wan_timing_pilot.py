@@ -10,6 +10,8 @@ from guidance_utils.wan_guidance_schedule import window_indices, learning_rates
 
 WINDOWS = {'early_00_09': [50, 40], 'later_20_29': [30, 20]}
 PROBE_STEPS = [0, 1, 4, 9, 10, 19, 20, 21, 24, 29, 30, 39, 49]
+MODEL_KEYS = {'1.3b': 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers',
+              '14b': 'Wan-AI/Wan2.1-T2V-14B-Diffusers'}
 
 
 def build_jobs(rows, inputs, output):
@@ -85,13 +87,18 @@ def validate_run(job, run=None, expected_environment=None):
         raise ValueError(f'Incomplete videos: {path}')
     trace, meta, events = load_trace(path)
     config = meta['config']
-    expected = dict(model_key='Wan-AI/Wan2.1-T2V-1.3B-Diffusers', opt_mode='latent', guidance_mode='latent', loss_type='flow', flow_loss='mse',
+    model = job.get('model', '1.3b')
+    if model not in MODEL_KEYS:
+        raise ValueError(f'Unsupported experiment model: {model}')
+    expected = dict(model_key=MODEL_KEYS[model], opt_mode='latent', guidance_mode='latent', loss_type='flow', flow_loss='mse',
         flow_region_masks=None, guidance_blocks=[10] if job.get('amf_enabled', True) else [], injection_blocks=[], optimization_steps=5,
         guidance_timestep_range=job['window'], lr=[.002, .001], lr_decay_steps=10,
         num_inference_steps=50, seed=1, num_frames=21, height=480, width=832,
         scheduler='flowmatch', flow_shift=3., guidance_scale=5., motion_temp=2., flow_max_disp=100.,
         threshloss=True, argmax_motion_flow=True, flow_min_conf=None, softmax_fp32=True,
         source_prompt='', target_prompt=job['prompt'])
+    if 'cpu_offload' in job:
+        expected['enable_model_cpu_offload'] = job['cpu_offload']
     for key, value in expected.items():
         if config.get(key) != value:
             raise ValueError(f'{path}: unexpected {key}: {config.get(key)!r} vs {value!r}')
