@@ -86,7 +86,7 @@ def validate_run(job, run=None, expected_environment=None):
     trace, meta, events = load_trace(path)
     config = meta['config']
     expected = dict(model_key='Wan-AI/Wan2.1-T2V-1.3B-Diffusers', opt_mode='latent', guidance_mode='latent', loss_type='flow', flow_loss='mse',
-        flow_region_masks=None, guidance_blocks=[10], injection_blocks=[], optimization_steps=5,
+        flow_region_masks=None, guidance_blocks=[10] if job.get('amf_enabled', True) else [], injection_blocks=[], optimization_steps=5,
         guidance_timestep_range=job['window'], lr=[.002, .001], lr_decay_steps=10,
         num_inference_steps=50, seed=1, num_frames=21, height=480, width=832,
         scheduler='flowmatch', flow_shift=3., guidance_scale=5., motion_temp=2., flow_max_disp=100.,
@@ -99,7 +99,7 @@ def validate_run(job, run=None, expected_environment=None):
     observed = [(e['step'], e['iteration']) for e in updates]
     wanted = [(step, iteration) for step in job['sampling_indices'] for iteration in range(5)]
     if observed != wanted:
-        raise ValueError(f'{path}: optimizer count/order does not match the expected 50 updates')
+        raise ValueError(f'{path}: optimizer count/order does not match the expected {len(wanted)} updates')
     for e in updates:
         rate = job['learning_rates'][job['sampling_indices'].index(e['step'])]
         if not math.isclose(e['lr'], rate, rel_tol=1e-10, abs_tol=1e-12):
