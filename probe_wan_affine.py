@@ -26,6 +26,9 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-v', '--video_path', required=True, help='Only the first frame supplies control texture')
     parser.add_argument('--output_path', required=True, type=Path)
+    parser.add_argument('--model', choices=('1.3b', '14b'), default='1.3b')
+    parser.add_argument('--low_vram', action='store_true', help='Enable model CPU offload, including for 14B')
+    parser.add_argument('--mean_only', action='store_true', help='Measure the baseline mean-logit AMF only; skip per-head sweeps')
     parser.add_argument('--controls', nargs='+', choices=CONTROLS, default=list(CONTROLS))
     parser.add_argument('--blocks', nargs='+', type=int, default=[10])
     parser.add_argument('--noise_steps', nargs='+', type=int, default=[0, 9, 29], help='Indices in the fixed 50-step flowmatch schedule; clean t=0 is always added')
@@ -50,8 +53,9 @@ def noisy_input(latent, noise, sigma):
 
 def main():
     parser = build_parser(); args = parser.parse_args()
-    if any(b < 0 or b >= 30 for b in args.blocks) or any(i < 0 or i >= 50 for i in args.noise_steps):
-        parser.error('Wan 1.3B blocks must be 0..29 and sampling indices 0..49')
+    layers = 30 if args.model == '1.3b' else 40
+    if any(b < 0 or b >= layers for b in args.blocks) or any(i < 0 or i >= 50 for i in args.noise_steps):
+        parser.error(f'Wan {args.model} blocks must be 0..{layers-1} and sampling indices 0..49')
     root = args.output_path.resolve()
     if root.exists() and any(root.iterdir()):
         parser.error('Use a fresh output directory; the notebook resumes completed clip suites')
@@ -69,7 +73,8 @@ def main():
     Image.fromarray(first).save(root/'base_frame.png')
     config = OmegaConf.load('configs/guidance_config_wan.yaml')
     config = OmegaConf.merge(config, dict(
-        model_key=MODEL_IDS['1.3b'], video_path=str(Path(args.video_path).resolve()), output_path=str(root/'initialization'),
+        model_key=MODEL_IDS[args.model], enable_model_cpu_offload=args.low_vram,
+        video_path=str(Path(args.video_path).resolve()), output_path=str(root/'initialization'),
         target_prompt=args.prompt, source_prompt='', negative_prompt=WAN_NEGATIVE_PROMPT, seed=1,
         opt_mode='latent', guidance_mode='latent', loss_type='flow', save_format='mp4', save_embeds=False,
         inject_embeds=False, verbose=False, scheduler='flowmatch', flow_shift=3., num_frames=21,
@@ -94,11 +99,12 @@ def main():
         git_commit=commit, source_sha256={p:hashlib.sha256(Path(p).read_bytes().replace(b'\r\n', b'\n')).hexdigest() for p in sources},
         input_base_sha256=hashlib.sha256(first.tobytes()).hexdigest(), blocks=list(dict.fromkeys(args.blocks)),
         controls=list(dict.fromkeys(args.controls)), noise_states=states, noise_seed=args.noise_seed,
+        mean_only=args.mean_only, cpu_offload=args.low_vram,
         noise_sha256=hashlib.sha256(noise.cpu().numpy().tobytes()).hexdigest(), conditioning=args.prompt,
         model_revision=getattr(guidance.transformer.config, '_commit_hash', None), temperature=float(config.motion_temp),
         note='Controlled forward-noised videos, not denoising trajectories. No generation/optimization. Native RoPE unchanged.')
     (root/'metadata.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
-    rows = []; observer = AffineObserver(root, grid, float(config.motion_temp), rows)
+    rows = []; observer = AffineObserver(root, grid, float(config.motion_temp), rows, mean_only=args.mean_only)
     for b in metadata['blocks']:
         guidance.transformer.blocks[b].attn1.processor.motion_probe = observer
     print(f"{len(metadata['controls'])*len(states)} observed forwards, blocks={metadata['blocks']}; no generations", flush=True)

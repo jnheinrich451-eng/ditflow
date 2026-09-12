@@ -97,7 +97,7 @@ def field_metrics(prediction, truth, selected):
                 zero_fraction=float((pn<1e-8).mean()), moving_patches=int(moving.sum()))
 
 
-def head_readouts(query, key, grid, temperature=2.):
+def head_readouts(query, key, grid, temperature=2., mean_only=False):
     """FP32 detached measurement; head logits retain their natural 1/sqrt(D) scale.
 
     mean_logits is the existing AMF observer, not the mean of head probabilities.
@@ -106,6 +106,8 @@ def head_readouts(query, key, grid, temperature=2.):
     from guidance_utils.motion_probe import adjacent_attention
     f, h, w = grid
     yield 'mean_logits', adjacent_attention(query, key, h, w, f, temperature)
+    if mean_only:
+        return
     for head in range(query.shape[-2]):
         yield f'head_{head:02d}', adjacent_attention(query[:, :, head:head+1], key[:, :, head:head+1], h, w, f, temperature)
 
@@ -115,8 +117,9 @@ class AffineObserver:
     rope_enabled = False
     context = None
 
-    def __init__(self, root, grid, temperature, rows):
+    def __init__(self, root, grid, temperature, rows, mean_only=False):
         self.root, self.grid, self.temperature, self.rows = Path(root), grid, temperature, rows
+        self.mean_only = mean_only
         self.active = None
         self.seen = set()
 
@@ -131,7 +134,7 @@ class AffineObserver:
         labels, truths = self.active
         folder = self.root/labels['control']/labels['noise_label']/block_name
         folder.mkdir(parents=True, exist_ok=True)
-        for variant, arrays in head_readouts(query, key, self.grid, self.temperature):
+        for variant, arrays in head_readouts(query, key, self.grid, self.temperature, self.mean_only):
             np.savez_compressed(folder/f'{variant}.npz', **arrays)
             for offset, (truth, geometric, textured) in truths.items():
                 for support, selected in [('geometry', geometric), ('textured', geometric & textured)]:
