@@ -41,3 +41,13 @@ Run setup, then Stage 1. To minimize Colab time, archive immediately and share t
 The archive cell can run after Stage 1 alone. It includes logs, configuration, metadata, arrays, reports and videos, excluding large `.pt`/`.pth` files and embeddings. `export_probe_archive` persists it to `My Drive/ditflow_probes` in Colab and provides its existing browser download option. It works with the existing VS Code-to-Colab Drive workflow.
 
 The experiment does not implement I2V or change the production AMF loss. Local CPU tests validate geometry, readout equivalence, scheduler isolation, score semantics and rejection of invalid traces. They do not validate pretrained 14B behavior or GPU memory usage; those require the Colab run.
+
+## Follow-up: compare 14B blocks 10, 20 and 30
+
+The notebook section **Wan2.1 14B: car-turn block readout comparison (10 / 20 / 30)**, tag `wan-car-block-readout-14b`, adds five cells: setup, one shared readout command, summary, and Drive export after the explanatory cell. It uses the same retained car-turn inputs. Restore `BLOCK_OUT` to resume. Output prefix: `wan_car_blocks_14b_`.
+
+The plan selects `readout_blocks=[10,20,30]` and `readout_only=True`; it contains no response-generation command and rejects attempts to launch that stage. All blocks are observed in the same 20 forwards, using the same encoded controls, noise tensor, prompt and schedule. Each pass runs through block 30, so it costs more than the earlier block-10-only pass. It does not load three models or run three separate generation suites. Observed blocks do not change the generator's guidance block configuration.
+
+The audit requires all 720 metric rows and every selected block's capture. Pure-noise fields must match across controls **within each block**; different blocks may have different noise biases. The report retains hard/soft fields, geometric and textured supports, and anchor offsets. `block_summary.csv` displays nominal soft-AMF static error, both translation cosines and both scale amplitudes together, without selecting a winner.
+
+A static control repeats the first decoded car frame 21 times. There is no true image-plane movement. The noisy tests add independent-frame Gaussian noise after VAE encoding; static EPE is the mean length of the spurious AMF vectors on the selected patches, not actual car motion. At sigma 0.93047, large false displacement demonstrates an unreliable motion readout in that setting but does not by itself establish an indexing error. A good block must be checked on both opposite directions and static error, then validated with actual guidance and ultimately I2V; clean or pure-noise scores alone cannot establish transfer quality.

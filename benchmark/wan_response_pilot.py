@@ -23,7 +23,12 @@ def environment_snapshot():
     return snapshot
 
 
-def make_plan(inputs, root, archive=None):
+def make_plan(inputs, root, archive=None, *, readout_blocks=(10,), readout_only=False):
+    blocks = list(readout_blocks)
+    if not blocks or len(set(blocks))!=len(blocks) or any(type(b) is not int or not 0<=b<40 for b in blocks):
+        raise ValueError('Select distinct 14B block indices from 0 to 39')
+    if blocks != [10] and not readout_only:
+        raise ValueError('Multi-block observation is readout-only; response intervention still uses block 10')
     inputs, rows = direction.prepare_inputs(inputs, archive)
     row = next(r for r in rows if r['clip_id']=='car-turn')
     root = Path(root).resolve()
@@ -33,46 +38,52 @@ def make_plan(inputs, root, archive=None):
     video = str(inputs/row['video_path'])
     prompt = row['prompt'].rstrip().rstrip('.')+'. '+direction.DIRECTION_SUFFIXES['car-turn']
     plan = dict(schema_version=1, clip_id='car-turn', model=MODEL, inputs=str(inputs), prompt=prompt,
+        readout_blocks=blocks, readout_only=readout_only,
         readout_command=[sys.executable,'probe_wan_affine.py','-v',video,'--model','14b','--low_vram',
-            '--mean_only','--blocks','10','--controls',*CONTROLS,'--noise_steps','0','9','29'],
+            '--mean_only','--blocks',*map(str,blocks),'--controls',*CONTROLS,'--noise_steps','0','9','29'],
         response_command=[sys.executable,'probe_wan_response.py','-v',video,'--prompt',prompt,
             '--branch_step','9','--updates','5'])
+    if readout_only:
+        del plan['response_command']
     (root/'plan.json').write_text(json.dumps(plan,indent=2),encoding='utf-8')
     (root/'environment.json').write_text(json.dumps(environment_snapshot(),indent=2),encoding='utf-8')
     (root/'input_manifest.csv').write_bytes((inputs/'manifest.csv').read_bytes())
     return plan
 
 
-def audit_readout(root):
+def audit_readout(root, expected_blocks=(10,)):
     import numpy as np
     root = Path(root)
     meta = json.loads((root/'metadata.json').read_text())
     rows = json.loads((root/'metrics.json').read_text())
     done = json.loads((root/'complete.json').read_text())
-    if (meta['model']!=MODEL or meta['blocks']!=[10] or meta['controls']!=CONTROLS
+    blocks = list(expected_blocks)
+    block_names = [f'block_{b}_attn1_processor' for b in blocks]
+    if (meta['model']!=MODEL or meta['blocks']!=blocks or meta['controls']!=CONTROLS
             or meta.get('mean_only') is not True or meta.get('cpu_offload') is not True
             or meta['conditioning']!='' or meta['grid']!=[6,30,52]
             or [s['sampling_index'] for s in meta['noise_states']]!=[-1,0,9,29]):
         raise ValueError('Readout does not match the planned 14B baseline control suite')
-    expected = {(c,s['noise_label'],o,support,field) for c in CONTROLS for s in meta['noise_states']
+    expected = {(b,c,s['noise_label'],o,support,field) for b in block_names for c in CONTROLS for s in meta['noise_states']
                 for o in (-2,0,2) for support in ('geometry','textured') for field in ('hard','soft')}
-    observed = {(r['control'],r['noise_label'],r['anchor_offset'],r['support'],r['field']) for r in rows}
+    observed = {(r['block'],r['control'],r['noise_label'],r['anchor_offset'],r['support'],r['field']) for r in rows}
     if observed!=expected or len(rows)!=len(expected) or done!={'forward_passes':20,'rows':len(rows)}:
         raise ValueError('Incomplete or duplicated affine observations')
     for row in rows:
-        if row['variant']!='mean_logits' or row['block']!='block_10_attn1_processor' or row['finite_fraction']!=1:
+        if row['variant']!='mean_logits' or row['block'] not in block_names or row['finite_fraction']!=1:
             raise ValueError('Invalid affine readout row')
-    pure = []
-    for control in CONTROLS:
-        for state in meta['noise_states']:
-            with np.load(root/control/state['noise_label']/'block_10_attn1_processor/mean_logits.npz') as z:
-                if z['soft'].shape!=(5,1560,2) or not all(np.isfinite(z[k]).all() for k in z.files):
-                    raise ValueError('Invalid saved AMF array')
-                if state['sampling_index']==0:
-                    pure.append(z['soft'].copy())
-    if not all(np.array_equal(pure[0],p) for p in pure[1:]):
-        raise ValueError('Pure-noise controls differ despite identical inputs')
-    return dict(model=MODEL, forward_passes=20, rows=len(rows), pure_noise_equal=True,
+    for block in block_names:
+        pure = []
+        for control in CONTROLS:
+            for state in meta['noise_states']:
+                with np.load(root/control/state['noise_label']/block/'mean_logits.npz') as z:
+                    if z['soft'].shape!=(5,1560,2) or not all(np.isfinite(z[k]).all() for k in z.files):
+                        raise ValueError('Invalid saved AMF array')
+                    if state['sampling_index']==0:
+                        pure.append(z['soft'].copy())
+        if not all(np.array_equal(pure[0],p) for p in pure[1:]):
+            raise ValueError(f'{block}: pure-noise controls differ despite identical inputs')
+    return dict(model=MODEL, blocks=blocks, forward_passes=20, rows=len(rows), pure_noise_equal=True,
                 note='Structural audit passed; read motion errors before deciding on a correction.')
 
 
@@ -187,6 +198,8 @@ def run_stage(root, stage):
         raise ValueError(stage)
     root = Path(root).resolve()
     plan = json.loads((root/'plan.json').read_text())
+    if stage=='response' and plan.get('readout_only',False):
+        raise ValueError('This plan observes blocks only; no response generations are scheduled')
     expected = json.loads((root/'environment.json').read_text())
     timing.require_same_environment(expected, environment_snapshot())
     direction.prepare_inputs(plan['inputs'])
@@ -194,7 +207,7 @@ def run_stage(root, stage):
         readout_marker = json.loads((root/'readout_done.json').read_text())
         audit_readout(root/readout_marker['directory'])
     marker = root/f'{stage}_done.json'
-    validator = audit_readout if stage=='readout' else audit_response
+    validator = (lambda p:audit_readout(p,plan.get('readout_blocks',[10]))) if stage=='readout' else audit_response
     if marker.is_file():
         directory = root/json.loads(marker.read_text())['directory']
         validator(directory)
