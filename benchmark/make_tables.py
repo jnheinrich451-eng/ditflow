@@ -44,7 +44,7 @@ them at run time or they are lost.
 }
 
 Usage:
-    python make_tables.py results.jsonl --out tables/
+    python benchmark/make_tables.py results.jsonl --out tables/
 """
 
 from __future__ import annotations

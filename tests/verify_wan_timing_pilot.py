@@ -1,4 +1,10 @@
 """Controlled timing plan and actual-trace audit tests, without model inference."""
+import sys
+from pathlib import Path
+
+# Tests import repo modules by their root names; make `python tests/<file>.py` work from the root checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import ast
 import argparse
 import copy

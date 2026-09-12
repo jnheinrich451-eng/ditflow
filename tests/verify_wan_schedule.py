@@ -1,4 +1,10 @@
 """Weight-free regression checks for guidance scheduling and direction metrics."""
+import sys
+from pathlib import Path
+
+# Tests import repo modules by their root names; make `python tests/<file>.py` work from the root checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 
 from contextlib import nullcontext
 from types import SimpleNamespace

@@ -1,4 +1,10 @@
 """Validate factorial controls, actual-trace rejection and exports without Wan inference."""
+import sys
+from pathlib import Path
+
+# Tests import repo modules by their root names; make `python tests/<file>.py` work from the root checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import ast
 import copy

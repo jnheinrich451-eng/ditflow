@@ -1,4 +1,10 @@
 """CPU tests for the explicitly experimental region-weighted AMF loss."""
+import sys
+from pathlib import Path
+
+# Tests import repo modules by their root names; make `python tests/<file>.py` work from the root checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import tempfile
 import unittest
 from pathlib import Path

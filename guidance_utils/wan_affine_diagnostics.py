@@ -156,7 +156,8 @@ def make_affine_report(root):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from probe_report import _inline_figure
-    page = ['<!doctype html><meta charset="utf-8"><title>Wan affine motion readout</title>',
+    backbone = html.escape(str(metadata.get('backbone', 'Wan')))
+    page = [f'<!doctype html><meta charset="utf-8"><title>{backbone} affine motion readout</title>',
             '<style>body{font:16px system-ui;max-width:1500px;margin:24px auto}img{max-width:100%}td,th{padding:6px;border:1px solid #ccc}table{border-collapse:collapse}</style>',
             '<h1>Known-motion AMF readout</h1><p>Observation only: no latent optimization, KV injection, RoPE modification or target generation. '
             'The controls are image-plane transforms, not 3D turns or gaits. Gaussian noise is added to encoded controls; these are not actual sampled generation states. '

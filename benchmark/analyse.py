@@ -8,7 +8,7 @@ themselves rather than being retyped.
     python benchmark/analyse.py --scores benchmark/scores_davis.csv \
         --out benchmark/tables_davis.md
 
-Four outputs, matching benchmark-results-v1.md section 4:
+Four outputs, matching docs/benchmark-results-v1.md section 4:
 
   Gate      C1 (frozen video) against the best method, per metric. Any metric
             C1 is not clearly beaten on leaves the main table.
@@ -19,7 +19,7 @@ Four outputs, matching benchmark-results-v1.md section 4:
   Ranking   Bootstrap over clips: how often each config ranks first. If no
             config wins reliably, an ordering claim is not supported at this N.
 
-Statistical treatment, per fix_on_pipeline.md 2(b): the unit is the clip, not
+Statistical treatment, per docs/fix_on_pipeline.md 2(b): the unit is the clip, not
 the run; comparisons are paired on clip; uncertainty is a percentile bootstrap
 over clips; a difference counts only when the interval excludes zero.
 """

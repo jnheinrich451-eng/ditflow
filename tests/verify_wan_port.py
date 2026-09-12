@@ -5,7 +5,7 @@ checkpoint, no GPU and a few seconds. Architecture and autograd behaviour do not
 depend on weights, which is the point -- this is cheap enough to run at the
 start of any session that touches the port.
 
-    python verify_wan_port.py
+    python tests/verify_wan_port.py
 
 The AMF check compares against **this repo's own** `guidance_utils/
 motion_flow_utils.py` -- the published DiTFlow implementation -- not against
@@ -16,6 +16,12 @@ grids); see the module docstring in `guidance_utils/wan_motion_flow_utils.py`.
 
 Exits non-zero on any failure.
 """
+import sys
+from pathlib import Path
+
+# Tests import repo modules by their root names; make `python tests/<file>.py` work from the root checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 
 import sys
 import traceback
