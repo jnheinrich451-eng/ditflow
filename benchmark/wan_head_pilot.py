@@ -30,7 +30,7 @@ def environment_snapshot():
     for name in ('probe_wan_affine.py','benchmark/wan_head_pilot.py',
                  'benchmark/wan_head_visual_pilot.py','probe_wan_head_visual.py','probe_wan_response.py',
                  'benchmark/wan_head_crossover_pilot.py','benchmark/wan_noised_reference_pilot.py',
-                 'probe_wan_noised_reference.py'):
+                 'probe_wan_noised_reference.py','benchmark/wan_pair_pilot.py','probe_wan_pairs.py'):
         snapshot['source_sha256'][name] = digest(name)
     return snapshot
 
