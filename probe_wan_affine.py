@@ -34,6 +34,8 @@ def build_parser():
     parser.add_argument('--noise_steps', nargs='+', type=int, default=[0, 9, 29], help='Indices in the fixed 50-step flowmatch schedule; clean t=0 is always added')
     parser.add_argument('--noise_seed', type=int, default=17)
     parser.add_argument('--prompt', default='', help='Same text for ALL states; blank isolates noise effects and matches reference extraction')
+    parser.add_argument('--readout_temperatures', nargs='+', type=float, default=None,
+                        help='Opt-in mean-logit sharpening sweep on shared Q/K; requires --mean_only')
     return parser
 
 
@@ -53,6 +55,14 @@ def noisy_input(latent, noise, sigma):
 
 def main():
     parser = build_parser(); args = parser.parse_args()
+    if args.readout_temperatures is not None:
+        from guidance_utils.wan_amf_calibration import validate_temperatures
+        try:
+            args.readout_temperatures = validate_temperatures(args.readout_temperatures)
+        except ValueError as error:
+            parser.error(str(error))
+        if not args.mean_only:
+            parser.error('--readout_temperatures requires --mean_only')
     layers = 30 if args.model == '1.3b' else 40
     if any(b < 0 or b >= layers for b in args.blocks) or any(i < 0 or i >= 50 for i in args.noise_steps):
         parser.error(f'Wan {args.model} blocks must be 0..{layers-1} and sampling indices 0..49')
@@ -93,6 +103,8 @@ def main():
         commit = None
     sources = ['probe_wan_affine.py', 'guidance_utils/wan_affine_diagnostics.py', 'guidance_utils/motion_probe.py',
                'guidance_utils/wan_modules.py', 'guidance_utils/wan_transformer.py', 'motion_guidance_wan.py']
+    if args.readout_temperatures is not None:
+        sources.append('guidance_utils/wan_amf_calibration.py')
     metadata = dict(schema_version=1, model=config.model_key, grid=grid, packages={k:version(k) for k in (
         'torch', 'diffusers', 'transformers', 'huggingface-hub', 'numpy', 'Pillow')}, python=platform.python_version(),
         gpu=torch.cuda.get_device_name(), model_dtype=str(guidance.dtype), diagnostic_precision='fp32 detached QK',
@@ -103,8 +115,14 @@ def main():
         noise_sha256=hashlib.sha256(noise.cpu().numpy().tobytes()).hexdigest(), conditioning=args.prompt,
         model_revision=getattr(guidance.transformer.config, '_commit_hash', None), temperature=float(config.motion_temp),
         note='Controlled forward-noised videos, not denoising trajectories. No generation/optimization. Native RoPE unchanged.')
+    rows = []
+    if args.readout_temperatures is None:
+        observer = AffineObserver(root, grid, float(config.motion_temp), rows, mean_only=args.mean_only)
+    else:
+        from guidance_utils.wan_amf_calibration import CalibrationObserver
+        metadata['readout_temperatures'] = args.readout_temperatures
+        observer = CalibrationObserver(root, grid, args.readout_temperatures, rows)
     (root/'metadata.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
-    rows = []; observer = AffineObserver(root, grid, float(config.motion_temp), rows, mean_only=args.mean_only)
     for b in metadata['blocks']:
         guidance.transformer.blocks[b].attn1.processor.motion_probe = observer
     print(f"{len(metadata['controls'])*len(states)} observed forwards, blocks={metadata['blocks']}; no generations", flush=True)
@@ -143,7 +161,11 @@ def main():
                 guidance.transformer.stop_after_block = None; observer.active = None
             (root/'metrics.json').write_text(json.dumps(rows, indent=2, allow_nan=False), encoding='utf-8')
         clean_memory()
-    print(make_affine_report(root), flush=True)
+    if args.readout_temperatures is None:
+        print(make_affine_report(root), flush=True)
+    else:
+        from guidance_utils.wan_amf_calibration import make_calibration_report
+        print(make_calibration_report(root), flush=True)
     (root/'complete.json').write_text(json.dumps(dict(forward_passes=len(states)*len(metadata['controls']), rows=len(rows))), encoding='utf-8')
 
 
