@@ -35,6 +35,8 @@ def build_parser():
     parser.add_argument('--blocks', nargs='+', type=int, default=[10])
     parser.add_argument('--noise_steps', nargs='+', type=int, default=[0, 9, 29], help='Indices in the fixed 50-step flowmatch schedule; clean t=0 is always added')
     parser.add_argument('--noise_seed', type=int, default=17)
+    parser.add_argument('--cross_noise_timestep',action='store_true',
+                        help='Diagnostic 2x2 input-noise versus model-time matrix; requires --noise_steps 9')
     parser.add_argument('--prompt', default='', help='Same text for ALL states; blank isolates noise effects and matches reference extraction')
     parser.add_argument('--readout_temperatures', nargs='+', type=float, default=None,
                         help='Opt-in mean-logit sharpening sweep on shared Q/K; requires --mean_only')
@@ -57,6 +59,8 @@ def noisy_input(latent, noise, sigma):
 
 def main():
     parser = build_parser(); args = parser.parse_args()
+    if args.cross_noise_timestep and (args.noise_steps != [9] or args.readout_temperatures is not None):
+        parser.error('--cross_noise_timestep requires --noise_steps 9 and no sharpening sweep')
     if args.readout_temperatures is not None:
         from guidance_utils.wan_amf_calibration import validate_temperatures
         try:
@@ -100,6 +104,9 @@ def main():
     guidance = ReadoutWan(config)
     grid = [guidance.latent_num_frames, guidance.patches_height, guidance.patches_width]
     states = noise_states(guidance.scheduler, args.noise_steps)
+    if args.cross_noise_timestep:
+        from guidance_utils.wan_head_diagnostics import crossover_states
+        states = crossover_states(guidance.scheduler)
     # Dedicated CPU generator; reuse exactly the same independent-frame noise for all controls.
     noise = torch.randn(guidance.motion_latent.shape, generator=torch.Generator().manual_seed(args.noise_seed), dtype=torch.float32).to(guidance.device)
     text = guidance.guidance_embeds[1:2] if args.prompt else guidance.source_embeds
@@ -111,6 +118,8 @@ def main():
                'guidance_utils/wan_modules.py', 'guidance_utils/wan_transformer.py', 'motion_guidance_wan.py']
     if args.readout_temperatures is not None:
         sources.append('guidance_utils/wan_amf_calibration.py')
+    if args.cross_noise_timestep:
+        sources.append('guidance_utils/wan_head_diagnostics.py')
     metadata = dict(schema_version=1, model=config.model_key, grid=grid, packages={k:version(k) for k in (
         'torch', 'diffusers', 'transformers', 'huggingface-hub', 'numpy', 'Pillow')}, python=platform.python_version(),
         gpu=torch.cuda.get_device_name(), model_dtype=str(guidance.dtype), diagnostic_precision='fp32 detached QK',
@@ -122,6 +131,9 @@ def main():
         model_revision=getattr(guidance.transformer.config, '_commit_hash', None), temperature=float(config.motion_temp),
         note='Controlled forward-noised videos, not denoising trajectories. No generation/optimization. Native RoPE unchanged.')
     rows = []
+    if args.cross_noise_timestep:
+        metadata.update(cross_noise_timestep=True,forward_inputs=[],
+            note='Input noise and timestep are independently manipulated. Crossed conditions are diagnostic counterfactuals, not sampling settings.')
     if args.readout_heads is not None:
         metadata['readout_heads'] = args.readout_heads
     if args.readout_temperatures is None:
@@ -155,13 +167,18 @@ def main():
             config.video_path = temporary; guidance.output_path = str(folder)
             latent = guidance.load_latent()
         for state in states:
-            print(f"[*] {kind} | {state['noise_label']} | sigma={state['sigma']:.6f}", flush=True)
+            print(f"[*] {kind} | {state['noise_label']} | sigma={state['sigma']:.6f} | t={state['timestep']:.6f}", flush=True)
             observer.active = (dict(control=kind, **state), truths); observer.seen.clear()
             guidance.transformer.stop_after_block = max(metadata['blocks'])
             try:
                 with torch.no_grad(), torch.autocast(device_type='cuda', dtype=guidance.dtype):
-                    guidance.transformer(hidden_states=noisy_input(latent, noise, state['sigma']).to(guidance.dtype),
-                        timestep=torch.tensor([state['timestep']], device=guidance.device),
+                    model_input = noisy_input(latent, noise, state['sigma']).to(guidance.dtype)
+                    model_time = torch.tensor([state['timestep']], device=guidance.device)
+                    if args.cross_noise_timestep:
+                        input_record = dict(control=kind,noise_label=state['noise_label'],sigma=state['sigma'],
+                            timestep=float(model_time.item()),
+                            latent_sha256=hashlib.sha256(model_input.float().cpu().numpy().tobytes()).hexdigest())
+                    guidance.transformer(hidden_states=model_input,timestep=model_time,
                         encoder_hidden_states=text, return_dict=False)
                 expected = {guidance.transformer.blocks[b].attn1.processor.block_name for b in metadata['blocks']}
                 if observer.seen != expected:
@@ -169,6 +186,9 @@ def main():
             finally:
                 guidance.transformer.stop_after_block = None; observer.active = None
             (root/'metrics.json').write_text(json.dumps(rows, indent=2, allow_nan=False), encoding='utf-8')
+            if args.cross_noise_timestep:
+                metadata['forward_inputs'].append(input_record)
+                (root/'metadata.json').write_text(json.dumps(metadata,indent=2),encoding='utf-8')
         clean_memory()
     if args.readout_temperatures is None:
         print(make_affine_report(root), flush=True)

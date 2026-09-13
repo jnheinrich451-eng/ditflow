@@ -13,6 +13,14 @@ BLOCKS = [20, 30]
 HEADS = list(range(40))
 
 
+def crossover_states(scheduler):
+    """Four diagnostic conditions with independent input-noise and model-time axes."""
+    return [dict(noise_label=f'noise_{n}_time_{t}',noise_sampling_index=ni,
+                 conditioning_sampling_index=ti,sigma=0. if ni==-1 else float(scheduler.sigmas[ni]),
+                 timestep=0. if ti==-1 else float(scheduler.timesteps[ti]))
+            for n,ni in [('clean',-1),('09',9)] for t,ti in [('clean',-1),('09',9)]]
+
+
 def screen_heads(rows):
     results = []
     for variant in sorted({r['variant'] for r in rows}):
@@ -23,7 +31,7 @@ def screen_heads(rows):
                 note='Fixed sharpening 2; no automatic head selection. Confirm on new texture/noise before generation.')
 
 
-def audit_heads(root, blocks=BLOCKS, heads=None, noise_seed=17):
+def audit_heads(root, blocks=BLOCKS, heads=None, noise_seed=17, *, cross_noise_timestep=False):
     """Recompute every metric while retaining only one capture at a time."""
     from diffusers import FlowMatchEulerDiscreteScheduler
     from omegaconf import OmegaConf
@@ -40,12 +48,32 @@ def audit_heads(root, blocks=BLOCKS, heads=None, noise_seed=17):
     if (meta['model'] != MODEL or meta['blocks'] != list(blocks) or meta['controls'] != CONTROLS
             or meta['noise_seed'] != noise_seed or meta['conditioning'] != '' or meta['temperature'] != 2.
             or meta['grid'] != [6,30,52] or not meta['cpu_offload'] or meta['mean_only']
-            or meta.get('readout_heads') != heads or meta.get('readout_temperatures') is not None):
+            or meta.get('readout_heads') != heads or meta.get('readout_temperatures') is not None
+            or meta.get('cross_noise_timestep',False) != cross_noise_timestep):
         raise ValueError('Head readout metadata differs from plan')
     scheduler = FlowMatchEulerDiscreteScheduler(shift=3.); scheduler.set_timesteps(50)
     states = [dict(noise_label='clean',sampling_index=-1,sigma=0.,timestep=0.)] + [
         dict(noise_label=f'step_{i:02d}',sampling_index=i,sigma=float(scheduler.sigmas[i]),
              timestep=float(scheduler.timesteps[i])) for i in (0,9,29)]
+    if cross_noise_timestep:
+        states = crossover_states(scheduler)
+        records = meta.get('forward_inputs',[])
+        wanted = {(c,s['noise_label']) for c in CONTROLS for s in states}
+        keys = [(r['control'],r['noise_label']) for r in records]
+        if len(keys)!=20 or set(keys)!=wanted:
+            raise ValueError('Missing or duplicate crossover input evidence')
+        for control in CONTROLS:
+            hashes = {}
+            for state in states:
+                record = next(r for r in records if (r['control'],r['noise_label'])==(control,state['noise_label']))
+                if record['timestep']!=state['timestep'] or record['sigma']!=state['sigma']:
+                    raise ValueError('Crossover model input labels disagree with actual timestep/noise')
+                digest = record['latent_sha256']
+                if not isinstance(digest,str) or len(digest)!=64:
+                    raise ValueError('Invalid crossover input fingerprint')
+                hashes.setdefault(state['noise_sampling_index'],set()).add(digest)
+            if any(len(v)!=1 for v in hashes.values()) or hashes[-1]==hashes[9]:
+                raise ValueError('Crossover input changed with timestep or noise manipulation is absent')
     if meta['noise_states'] != states:
         raise ValueError('Head readout noise schedule changed')
     variants = ['mean_logits', *[f'head_{i:02d}' for i in (HEADS if heads is None else heads)]]
@@ -90,8 +118,12 @@ def audit_heads(root, blocks=BLOCKS, heads=None, noise_seed=17):
             for key,value in values.items():
                 equal = row[key] is None if value is None else row[key] is not None and np.isclose(value,row[key],rtol=1e-6,atol=1e-7)
                 if not equal: raise ValueError(f'Saved metric disagrees with array: {key}')
-    return dict(forward_passes=20,rows=len(rows),captures=len(grouped),recomputed=True,pure_noise_equal=True,
+    result = dict(forward_passes=20,rows=len(rows),captures=len(grouped),recomputed=True,pure_noise_equal=True,
                 note='Structural audit only; see head screening and decoded outputs.')
+    if cross_noise_timestep:
+        result.update(pure_noise_equal=None,paired_inputs_equal=True,
+                      note='Exploratory noise/timestep crossover; no pure-noise state and no candidate promotion.')
+    return result
 
 
 def make_head_report(root):
