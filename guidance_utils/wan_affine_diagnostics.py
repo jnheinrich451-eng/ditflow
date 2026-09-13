@@ -97,18 +97,21 @@ def field_metrics(prediction, truth, selected):
                 zero_fraction=float((pn<1e-8).mean()), moving_patches=int(moving.sum()))
 
 
-def head_readouts(query, key, grid, temperature=2., mean_only=False):
+def head_readouts(query, key, grid, temperature=2., mean_only=False, heads=None):
     """FP32 detached measurement; head logits retain their natural 1/sqrt(D) scale.
 
     mean_logits is the existing AMF observer, not the mean of head probabilities.
     Running one head at a time bounds memory and leaves model tensors untouched.
     """
     from guidance_utils.motion_probe import adjacent_attention
+    if heads is not None and (mean_only or not heads or len(set(heads)) != len(heads)
+                             or any(type(i) is not int or not 0 <= i < query.shape[-2] for i in heads)):
+        raise ValueError('Readout heads must be distinct valid indices, without mean_only')
     f, h, w = grid
     yield 'mean_logits', adjacent_attention(query, key, h, w, f, temperature)
     if mean_only:
         return
-    for head in range(query.shape[-2]):
+    for head in (range(query.shape[-2]) if heads is None else heads):
         yield f'head_{head:02d}', adjacent_attention(query[:, :, head:head+1], key[:, :, head:head+1], h, w, f, temperature)
 
 
@@ -117,9 +120,10 @@ class AffineObserver:
     rope_enabled = False
     context = None
 
-    def __init__(self, root, grid, temperature, rows, mean_only=False):
+    def __init__(self, root, grid, temperature, rows, mean_only=False, heads=None):
         self.root, self.grid, self.temperature, self.rows = Path(root), grid, temperature, rows
         self.mean_only = mean_only
+        self.heads = heads
         self.active = None
         self.seen = set()
 
@@ -134,7 +138,7 @@ class AffineObserver:
         labels, truths = self.active
         folder = self.root/labels['control']/labels['noise_label']/block_name
         folder.mkdir(parents=True, exist_ok=True)
-        for variant, arrays in head_readouts(query, key, self.grid, self.temperature, self.mean_only):
+        for variant, arrays in head_readouts(query, key, self.grid, self.temperature, self.mean_only, self.heads):
             np.savez_compressed(folder/f'{variant}.npz', **arrays)
             for offset, (truth, geometric, textured) in truths.items():
                 for support, selected in [('geometry', geometric), ('textured', geometric & textured)]:

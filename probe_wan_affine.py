@@ -29,6 +29,8 @@ def build_parser():
     parser.add_argument('--model', choices=('1.3b', '14b'), default='1.3b')
     parser.add_argument('--low_vram', action='store_true', help='Enable model CPU offload, including for 14B')
     parser.add_argument('--mean_only', action='store_true', help='Measure the baseline mean-logit AMF only; skip per-head sweeps')
+    parser.add_argument('--readout_heads', nargs='+', type=int, default=None,
+                        help='Only these heads plus mean logits; omit for all heads')
     parser.add_argument('--controls', nargs='+', choices=CONTROLS, default=list(CONTROLS))
     parser.add_argument('--blocks', nargs='+', type=int, default=[10])
     parser.add_argument('--noise_steps', nargs='+', type=int, default=[0, 9, 29], help='Indices in the fixed 50-step flowmatch schedule; clean t=0 is always added')
@@ -64,6 +66,10 @@ def main():
         if not args.mean_only:
             parser.error('--readout_temperatures requires --mean_only')
     layers = 30 if args.model == '1.3b' else 40
+    heads = 12 if args.model == '1.3b' else 40
+    if args.readout_heads is not None and (args.mean_only or len(set(args.readout_heads)) != len(args.readout_heads)
+                                         or any(i < 0 or i >= heads for i in args.readout_heads)):
+        parser.error('--readout_heads requires distinct valid heads and cannot use --mean_only')
     if any(b < 0 or b >= layers for b in args.blocks) or any(i < 0 or i >= 50 for i in args.noise_steps):
         parser.error(f'Wan {args.model} blocks must be 0..{layers-1} and sampling indices 0..49')
     root = args.output_path.resolve()
@@ -116,8 +122,11 @@ def main():
         model_revision=getattr(guidance.transformer.config, '_commit_hash', None), temperature=float(config.motion_temp),
         note='Controlled forward-noised videos, not denoising trajectories. No generation/optimization. Native RoPE unchanged.')
     rows = []
+    if args.readout_heads is not None:
+        metadata['readout_heads'] = args.readout_heads
     if args.readout_temperatures is None:
-        observer = AffineObserver(root, grid, float(config.motion_temp), rows, mean_only=args.mean_only)
+        observer = AffineObserver(root, grid, float(config.motion_temp), rows, mean_only=args.mean_only,
+                                  heads=args.readout_heads)
     else:
         from guidance_utils.wan_amf_calibration import CalibrationObserver
         metadata['readout_temperatures'] = args.readout_temperatures

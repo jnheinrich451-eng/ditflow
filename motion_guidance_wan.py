@@ -354,6 +354,7 @@ class WanGuidance(nn.Module):
             checkpoint_pairs=self.checkpoint_amf,
             softmax_fp32=self.config.softmax_fp32,
             head_dim=self.transformer.config.attention_head_dim,
+            head_index=self.config.get('flow_head'),
         )
 
     # ---------------------------------------------------------------- #
@@ -482,6 +483,7 @@ class WanGuidance(nn.Module):
                 softmax_fp32=self.config.softmax_fp32,
                 head_dim=self.transformer.config.attention_head_dim,
                 return_confidence=True,
+                head_index=self.config.get('flow_head'),
             )
             attn_features[proc.block_name] = flow
             mask = amf_validity_mask(flow, conf, max_disp=max_disp, min_conf=min_conf,
@@ -793,6 +795,8 @@ def main():
     parser.add_argument("--flow_shift", type=float, default=None)
     parser.add_argument("--guidance_blocks", type=int, nargs="+", default=None, help="Override guidance block indices")
     parser.add_argument("--motion_temp", type=float, default=None)
+    parser.add_argument('--flow_head', type=int, default=None,
+                        help='EXPERIMENTAL: one AMF head for both reference and target; default averages logits')
     parser.add_argument("--flow_max_disp", type=float, default=None,
                         help="Drop reference AMF displacements above N patch units")
     parser.add_argument("--flow_min_conf", type=float, default=None,
@@ -824,6 +828,10 @@ def main():
     parser.add_argument("--verbose", action="store_true")
     add_probe_arguments(parser)
     opt = parser.parse_args()
+    if opt.flow_head is not None:
+        heads = 12 if opt.model == '1.3b' else 40
+        if opt.loss_type != 'flow' or not 0 <= opt.flow_head < heads:
+            parser.error(f'--flow_head requires flow loss and a head index in 0..{heads-1}')
     if opt.flow_region_masks and (opt.loss_type != 'flow' or opt.no_guidance):
         parser.error('--flow_region_masks requires AMF guidance (--loss_type flow, without --no_guidance)')
 
@@ -847,6 +855,7 @@ def main():
         "verbose": opt.verbose,
         "reference_only": opt.reference_only,
         "flow_region_masks": opt.flow_region_masks,
+        "flow_head": opt.flow_head,
     }
     for key, value in [
         ("num_frames", opt.num_frames),

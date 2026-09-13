@@ -109,6 +109,7 @@ def compute_motion_flow(
     softmax_fp32: bool = True,
     head_dim: Optional[int] = None,
     return_confidence: bool = False,
+    head_index: Optional[int] = None,
 ) -> torch.Tensor:
     """Compute Attention Motion Flow (AMF) -> (nframes^2, h*w, 2).
 
@@ -120,7 +121,15 @@ def compute_motion_flow(
               instead of retaining its softmax. Trades ~30% extra compute for
               O(S) instead of O(S^2) retained activations; needed above roughly
               33 frames at 480p.
+        head_index: optional experimental AMF head selection. None preserves
+              mean logits over all heads. Does not change native attention.
     """
+    if head_index is not None:
+        if (q.ndim != 4 or q.shape != k.shape or type(head_index) is not int
+                or not 0 <= head_index < q.shape[2]):
+            raise ValueError('head_index requires Wan B,S,H,D tensors and a valid head index')
+        # Opt-in AMF readout only. Native model attention still uses every head.
+        q, k = q[:, :, head_index:head_index+1], k[:, :, head_index:head_index+1]
     hw = h * w
     if head_dim is None:
         head_dim = q.shape[-1]
