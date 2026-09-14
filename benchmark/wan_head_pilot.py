@@ -31,7 +31,8 @@ def environment_snapshot():
                  'benchmark/wan_head_visual_pilot.py','probe_wan_head_visual.py','probe_wan_response.py',
                  'benchmark/wan_head_crossover_pilot.py','benchmark/wan_noised_reference_pilot.py',
                  'probe_wan_noised_reference.py','benchmark/wan_pair_pilot.py','probe_wan_pairs.py',
-                 'benchmark/wan_control_pilot.py','probe_wan_control.py','guidance_utils/wan_control_trace.py'):
+                 'benchmark/wan_control_pilot.py','probe_wan_control.py','guidance_utils/wan_control_trace.py',
+                 'benchmark/wan_archive_inputs.py'):
         snapshot['source_sha256'][name] = digest(name)
     return snapshot
 
