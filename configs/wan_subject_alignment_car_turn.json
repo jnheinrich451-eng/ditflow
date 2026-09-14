@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "method": "manual_coarse_boxes_from_completed_amf_off",
+  "baseline_video_sha256": "6307a1076ee982b686c493188465bd0abcfe822e9e70871d35f917ffa807fc16",
+  "baseline_initial_latent_sha256": "f62e490b35396228e2a43f63b53c7c622e769624c9679ffa17ddae739a69c2fb",
+  "image_size": [832, 480],
+  "anchor_frames": [0, 4, 8, 12, 16, 20],
+  "generated_boxes_xyxy": [
+    [342, 207, 506, 347],
+    [350, 207, 514, 351],
+    [358, 205, 532, 358],
+    [366, 205, 542, 363],
+    [370, 203, 554, 376],
+    [368, 201, 558, 381]
+  ],
+  "limitations": "Frozen boxes include the vehicle and mirrors approximately. They are not pixel segmentation or body-part matches. Frame 0 has a baseline rendering artifact. Later interventions never update boxes from guided outputs."
+}
