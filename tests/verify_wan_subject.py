@@ -27,6 +27,40 @@ from probe_wan_pairs import ForwardAdjacentMixin
 from probe_wan_subject import SubjectLossMixin
 
 
+class EnvironmentTests(unittest.TestCase):
+    def fixture(self):
+        return dict(python='3.13.15', cuda='12.8', gpu=['A100'],
+                    packages={'diffusers': '0.39.0', 'torch': '2.11.0+cu128'}, source_sha256={})
+
+    def test_reports_all_versions_and_missing_package_entries(self):
+        old, new = self.fixture(), self.fixture()
+        old['packages']['missing_now'] = None
+        new['packages'].update(diffusers='0.38.0', torch='2.11.0+cu126', missing_before=None)
+        new['gpu'] = ['T4']
+        with self.assertRaises(ValueError) as caught:
+            pilot.require_reusable_environment(old, new)
+        message = str(caught.exception)
+        for detail in ("packages.diffusers: recorded='0.39.0', current='0.38.0'",
+                       "packages.torch: recorded='2.11.0+cu128', current='2.11.0+cu126'",
+                       "packages.missing_now: recorded=None, current='<not recorded>'",
+                       "packages.missing_before: recorded='<not recorded>', current=None",
+                       "gpu: recorded=['A100'], current=['T4']"):
+            self.assertIn(detail, message)
+
+    def test_equal_runtime_passes(self):
+        pilot.require_reusable_environment(self.fixture(), self.fixture())
+
+    def test_source_mismatch_still_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)/'source.py'; source.write_text('original')
+            old, new = self.fixture(), self.fixture()
+            old['source_sha256'][source.as_posix()] = head.digest(source)
+            source.write_text('changed')
+            new['source_sha256'][source.as_posix()] = head.digest(source)
+            with self.assertRaisesRegex(ValueError, 'Cannot reuse previous videos: source changed:'):
+                pilot.require_reusable_environment(old, new)
+
+
 class GeometryTests(unittest.TestCase):
     def fixture(self, flow=(1., -.5)):
         field = np.broadcast_to(np.array(flow, np.float32), (9, 64, 2)).copy()

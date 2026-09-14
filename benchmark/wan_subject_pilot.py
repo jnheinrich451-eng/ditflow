@@ -39,6 +39,30 @@ def environment_snapshot():
     return value
 
 
+def require_reusable_environment(previous, current):
+    """Keep the existing reuse gate, but identify every runtime version mismatch."""
+    try:
+        pairs.require_reusable_environment(previous, current)
+    except ValueError as exc:
+        differences = []
+        for key in ('python', 'cuda', 'gpu'):
+            if previous[key] != current[key]:
+                differences.append(f'{key}: recorded={previous[key]!r}, current={current[key]!r}')
+        old, new = previous['packages'], current['packages']
+        missing = '<not recorded>'
+        for name in sorted(old.keys() | new.keys()):
+            expected, actual = old.get(name, missing), new.get(name, missing)
+            if expected != actual:
+                differences.append(f'packages.{name}: recorded={expected!r}, current={actual!r}')
+        if not differences:
+            raise
+        raise ValueError(str(exc)+'\n\nRecorded control versus current runtime:\n  '+
+                         '\n  '.join(differences)+
+                         '\n\nRestore the recorded versions/runtime, restart the kernel, and rerun steps 1 and 2. '
+                         'Rerunning setup alone does not restore packages. '
+                         'Keep the archived environment.json unchanged.') from None
+
+
 def restore_control_archive(archive, destination):
     """Restore the outer control experiment, never its nested older experiment."""
     destination = Path(destination).expanduser().resolve()
@@ -177,7 +201,7 @@ def make_plan(inputs, root, previous, input_zip=None):
         raise ValueError('Use a fresh setup directory; restore the existing path only to resume')
     old_plan, audit = validate_previous(previous)
     env = environment_snapshot()
-    pairs.require_reusable_environment(read_json(previous/'environment.json'), env)
+    require_reusable_environment(read_json(previous/'environment.json'), env)
     inputs, rows = head.direction.prepare_inputs(inputs, input_zip)
     if head.digest(inputs/'manifest.csv') != old_plan['input_manifest_sha256']:
         raise ValueError('Reference input manifest changed')
