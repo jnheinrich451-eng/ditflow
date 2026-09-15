@@ -1,8 +1,12 @@
 """Exercise the bounded acceptance runner using a tiny random Wan and real VAE."""
+import ast
+import inspect
 import json
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import torch
@@ -11,6 +15,51 @@ from diffusers import AutoencoderKLWan, WanPipeline, UniPCMultistepScheduler
 from verify_wan_decisive import RealSamplerTests
 from benchmark.wan_port_acceptance import AcceptanceRun
 from guidance_utils.wan_transformer import ControlledWanTransformer
+
+
+def verify_production_config():
+    """Exercise the real constructor/config merge without downloading weights.
+
+    The injected tiny-model path skips that merge. Check every literal required
+    config read in WanGuidance so omissions fail before a paid model load.
+    """
+    from motion_guidance_wan import WanGuidance
+    from benchmark import wan_port_acceptance as acceptance
+    tree = ast.parse(inspect.getsource(WanGuidance))
+    def is_config(node):
+        return (isinstance(node, ast.Name) and node.id == 'config') or (
+            isinstance(node, ast.Attribute) and node.attr == 'config'
+            and isinstance(node.value, ast.Name) and node.value.id == 'self')
+    required = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and is_config(node.value) and node.attr != 'get':
+            required.add(node.attr)
+        if (isinstance(node, ast.Subscript) and is_config(node.value)
+                and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str)):
+            required.add(node.slice.value)
+    configs = []
+    def check_config(config):
+        missing = sorted(required - set(config))
+        assert not missing, f'Acceptance config lacks required WanGuidance fields: {missing}'
+        assert config.loss_type == 'flow' and config.flow_loss == 'mse'
+        assert config.guidance_mode == 'latent' and config.injection_blocks == []
+        configs.append(config)
+        return SimpleNamespace(config=config)
+    with tempfile.TemporaryDirectory() as directory:
+        for gib in (40, 80):
+            with (patch.object(acceptance.torch.cuda, 'is_available', return_value=True),
+                  patch.object(acceptance.torch.cuda, 'get_device_properties',
+                               return_value=SimpleNamespace(total_memory=gib*2**30)),
+                  patch.object(acceptance, 'HfApi') as api,
+                  patch.object(acceptance, 'snapshot_download', return_value=directory) as download,
+                  patch.object(acceptance, 'WanGuidance', side_effect=check_config),
+                  patch.object(AcceptanceRun, '_finish_setup')):
+                api.return_value.model_info.return_value.sha = 'test-pinned-revision'
+                AcceptanceRun(Path(directory)/f'run-{gib}', directory, 'test prompt')
+                download.assert_called_once_with('Wan-AI/Wan2.1-T2V-14B-Diffusers',
+                                                 revision='test-pinned-revision')
+                assert configs[-1].enable_model_cpu_offload == (gib == 40)
+    print(f'PASS: production config covers {len(required)} required fields, including flow loss; 40/80 GB policies.')
 
 
 def main(cpu_offload=False):
@@ -60,4 +109,7 @@ def main(cpu_offload=False):
         print('PASS: full native parity, fresh solver-state trace, two-arm budget, decoded files; tiny model only.')
 
 
-if __name__=='__main__': main(cpu_offload='--cpu-offload' in sys.argv)
+if __name__=='__main__':
+    verify_production_config()
+    if '--config-only' not in sys.argv:
+        main(cpu_offload='--cpu-offload' in sys.argv)

@@ -89,7 +89,7 @@ class AcceptanceRun:
             guidance_blocks=[20], injection_blocks=[], guidance_timestep_range=[50,40],
             lr=[.002,.001], optimization_steps=5, motion_temp=2., flow_head=None,
             flow_max_disp=None, flow_min_conf=None, flow_region_masks=None,
-            flow_loss='mse', threshloss=True, argmax_motion_flow=True,
+            loss_type='flow', flow_loss='mse', threshloss=True, argmax_motion_flow=True,
             opt_mode='latent', guidance_mode='latent', inject_embeds=False, save_embeds=False,
             save_format='mp4', verbose=False, reference_only=False, probe=False, probe_rope=False,
             enable_model_cpu_offload=cpu_offload, enable_gradient_checkpointing=True))
