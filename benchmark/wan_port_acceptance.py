@@ -123,6 +123,10 @@ class AcceptanceRun:
             transformer_config=dict(g.transformer.config), vae_config=dict(g.vae.config),
             sigmas=g.scheduler.sigmas.tolist(), timesteps=g.timesteps.cpu().tolist(),
             config=self.config, source_sha256=self.sources)
+        source_root = Path(__file__).resolve().parents[1]
+        if (source_root/'.git').exists():
+            from benchmark.wan_acceptance_runtime import git_identity
+            self.manifest['source_git'] = git_identity(source_root)
         write_json(self.root/'manifest.json', self.manifest)
         OmegaConf.save(g.config, self.root/'configuration.yaml')
 
