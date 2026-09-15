@@ -418,7 +418,9 @@ class WanGuidance(nn.Module):
         if self.probe.context and self.probe.context["stage"] in ("reference", "final_latent"):
             self.transformer.stop_after_block = max([*(blocks or []), *self.probe.blocks])
         try:
-            with torch.autocast(device_type="cuda", dtype=self.dtype):
+            # Wan's loader deliberately keeps time embedding and modulation
+            # modules in FP32. A blanket BF16 autocast overrides that policy.
+            with torch.autocast(device_type=hidden_states.device.type, enabled=False):
                 self.transformer(
                     hidden_states=hidden_states.to(self.dtype),
                     timestep=timestep,
@@ -674,24 +676,26 @@ class WanGuidance(nn.Module):
         latent_model_input = latents.to(self.dtype)
         ts = t.expand(latent_model_input.shape[0]).to(self.device)
 
-        with torch.autocast(device_type="cuda", dtype=self.dtype), self.probe.phase("denoise_cond", i, t):
+        with torch.autocast(device_type=latents.device.type, enabled=False), self.probe.phase("denoise_cond", i, t):
             noise_pred_text = self.transformer(
                 hidden_states=latent_model_input,
                 timestep=ts,
                 encoder_hidden_states=prompt_embeds[1:2],
                 rope=rope,
                 return_dict=False,
-            )[0].float()
+            )[0]
 
-        with torch.autocast(device_type="cuda", dtype=self.dtype), self.probe.phase("denoise_uncond", i, t):
+        with torch.autocast(device_type=latents.device.type, enabled=False), self.probe.phase("denoise_uncond", i, t):
             noise_pred_uncond = self.transformer(
                 hidden_states=latent_model_input,
                 timestep=ts,
                 encoder_hidden_states=prompt_embeds[:1],
                 rope=rope,
                 return_dict=False,
-            )[0].float()
+            )[0]
 
+        # Match WanPipeline's CFG arithmetic in the model output dtype. The
+        # CogVideoX pipeline promotes before CFG; native WanPipeline does not.
         noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
         self.probe.prediction(i, t, noise_pred_text, noise_pred_uncond, self.guidance_scale)
         return self.scheduler.step(noise_pred, t, latents.float(), return_dict=False)[0]
@@ -715,18 +719,12 @@ class WanGuidance(nn.Module):
             if not is_guidance_step:
                 rope = None
 
-            self._set_kv_mode(injection_blocks, inject=False, copy=True)
-
-            if is_injection_step and injection_blocks:
-                # Cache KV from the reference video at this noise level.
-                noisy_latent = self._add_noise(self.motion_latent.float(), self.init_latents, t)
-                self._forward_transformer(
-                    noisy_latent,
-                    self.guidance_embeds[1:2],
-                    t.expand(noisy_latent.shape[0]).to(self.device),
-                    stop_at="injection",
-                )
-                self._set_kv_mode(injection_blocks, inject=True, copy=False)
+            # Each step starts without reference injection. In particular AMF
+            # must measure the target's own Q/K, including when the guidance
+            # and injection block lists overlap.
+            active_blocks = sorted(set(injection_blocks) | set(self.config.guidance_blocks))
+            self._set_kv_mode(active_blocks, inject=False, copy=False)
+            self._clear_kv(active_blocks)
 
             with torch.enable_grad():
                 if is_guidance_step and self.config.guidance_blocks:
@@ -740,6 +738,20 @@ class WanGuidance(nn.Module):
                             rope = torch.load(os.path.join(embeds_path, f"rope_{t}.pt")).to(self.device)
                         elif self.config.guidance_mode == "latent":
                             latents = torch.load(os.path.join(embeds_path, f"latent_{t}.pt")).to(self.device)
+
+            self._set_kv_mode(active_blocks, inject=False, copy=False)
+            self._clear_kv(active_blocks)
+            if is_injection_step and injection_blocks:
+                # Fill a fresh reference cache AFTER optimization, so AMF
+                # capture cannot overwrite it. Injection remains independently
+                # usable with --no_guidance.
+                self._set_kv_mode(injection_blocks, inject=False, copy=True)
+                noisy_latent = self._add_noise(self.motion_latent.float(), self.init_latents, t)
+                self._forward_transformer(
+                    noisy_latent, self.guidance_embeds[1:2],
+                    t.expand(noisy_latent.shape[0]).to(self.device), stop_at="injection",
+                )
+                self._set_kv_mode(injection_blocks, inject=True, copy=False)
 
             after_guidance = latents.detach().clone() if self.probe.enabled else None
             latents = self.denoise_step(latents, i, self.guidance_embeds, rope=rope)

@@ -87,6 +87,7 @@ class ControlRecorder:
     def _end_forward(self, module, inputs, output):
         if self.active is None or module.stop_after_block is not None:
             return
+        self.active['velocities'][self.active['branch']] = output[0].detach()
         self.active['arrays'][self.active['branch']+'_velocity'] = self.array(output[0])
         self.active['branch'] = None
 
@@ -137,15 +138,15 @@ class ControlRecorder:
         destination = self.path / f'{label}_{step:02d}'
         if destination.with_suffix('.npz').exists():
             raise ValueError('Duplicate control capture')
-        state = dict(calls=0, branch=None, arrays={'latent': self.array(latent)}, native={})
+        state = dict(calls=0, branch=None, arrays={'latent': self.array(latent)}, native={}, velocities={})
         self.active = state
         try:
             yield state['arrays']
             if state['calls'] != 2 or set(state['native']) != {'cond', 'uncond'}:
                 raise RuntimeError('Incomplete native denoising capture')
             arrays = state['arrays']
-            arrays['cfg_velocity'] = arrays['uncond_velocity'] + self.owner.guidance_scale * (
-                arrays['cond_velocity'] - arrays['uncond_velocity'])
+            cond, uncond = state['velocities']['cond'], state['velocities']['uncond']
+            arrays['cfg_velocity'] = self.array(uncond + self.owner.guidance_scale * (cond - uncond))
             if not all(np.isfinite(value).all() for value in arrays.values()):
                 raise RuntimeError('Nonfinite control capture')
             if not np.array_equal(arrays['latent'], self.array(latent)):
@@ -154,7 +155,7 @@ class ControlRecorder:
             write_json(destination.with_suffix('.json'), dict(label=label, step=step,
                 timestep=float(self.owner.timesteps[step]), sigma=float(self.owner.scheduler.sigmas[step]),
                 sigma_next=float(self.owner.scheduler.sigmas[step+1]), guidance_scale=self.owner.guidance_scale,
-                block=self.block, head=self.head, native=state['native'],
+                block=self.block, head=self.head, native=state['native'], cfg_dtype=str(cond.dtype),
                 mass_precision='FP32 reconstruction from native Q/K; no AMF sharpening'))
         finally:
             self._restore_attention()

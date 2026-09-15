@@ -79,12 +79,12 @@ def read_loss_flow(guidance, latent, timestep):
 def predict_clean(guidance, latent, step):
     """Same CFG velocity as production denoising, without advancing the scheduler."""
     t = guidance.timesteps[step]
-    with torch.autocast(device_type='cuda', dtype=guidance.dtype):
+    with torch.autocast(device_type=latent.device.type, enabled=False):
         with guidance.probe.phase('estimate_cond',step,t):
             cond = guidance.transformer(hidden_states=latent.to(guidance.dtype), timestep=t.reshape(1),
-                encoder_hidden_states=guidance.guidance_embeds[1:2], return_dict=False)[0].float()
+                encoder_hidden_states=guidance.guidance_embeds[1:2], return_dict=False)[0]
         uncond = guidance.transformer(hidden_states=latent.to(guidance.dtype), timestep=t.reshape(1),
-            encoder_hidden_states=guidance.guidance_embeds[:1], return_dict=False)[0].float()
+            encoder_hidden_states=guidance.guidance_embeds[:1], return_dict=False)[0]
     velocity = uncond+guidance.guidance_scale*(cond-uncond)
     return flow_clean_estimate(latent,velocity,guidance.scheduler.sigmas[step])
 

@@ -130,6 +130,18 @@ def require_directional_targets(reverse, forward):
         raise ValueError('Forward/reversed targets are identical on shared support; guidance cannot distinguish them')
 
 
+def captured_euler_state(values, meta):
+    ds = np.float32(meta['sigma_next'] - meta['sigma'])
+    if meta.get('cfg_dtype', 'torch.float32') == 'torch.float32':
+        return values['latent'] + ds * values['cfg_velocity']
+    import torch
+    dtype = {'torch.bfloat16': torch.bfloat16, 'torch.float16': torch.float16}[meta['cfg_dtype']]
+    velocity = torch.from_numpy(values['cfg_velocity']).to(dtype)
+    # A zero-dimensional FP32 sigma times BF16 velocity rounds in BF16,
+    # then Euler adds the FP32 sample and casts its return to model dtype.
+    return (torch.from_numpy(values['latent']) + torch.tensor(ds) * velocity).to(dtype).float().numpy()
+
+
 def audit_capture(path, shape=(1, 16, 6, 60, 104), expected_block=30, expected_head=30):
     from diffusers import FlowMatchEulerDiscreteScheduler
     path = Path(path); values = arrays(path); meta = read_json(path.with_suffix('.json'))
@@ -165,11 +177,19 @@ def audit_capture(path, shape=(1, 16, 6, 60, 104), expected_block=30, expected_h
         if key.endswith('frame_mass') and (np.any(value < 0) or not np.allclose(value.sum(-1), 1, atol=2e-6)):
             raise ValueError('Native temporal attention mass is not normalized')
     reconstructed = values['uncond_velocity'] + meta['guidance_scale']*(values['cond_velocity']-values['uncond_velocity'])
+    if meta.get('cfg_dtype', 'torch.float32') != 'torch.float32':
+        # Old archives used FP32 CFG. New captures retain native output-dtype
+        # arithmetic; the stored arrays themselves are still portable FP32.
+        import torch
+        dtype = {'torch.bfloat16': torch.bfloat16, 'torch.float16': torch.float16}[meta['cfg_dtype']]
+        cond = torch.from_numpy(values['cond_velocity']).to(dtype)
+        uncond = torch.from_numpy(values['uncond_velocity']).to(dtype)
+        reconstructed = (uncond + meta['guidance_scale'] * (cond - uncond)).float().numpy()
     if not np.array_equal(values['cfg_velocity'], reconstructed):
         raise ValueError('CFG prediction does not reconstruct')
     residual = None
     if denoise:
-        expected = values['latent'] + np.float32(meta['sigma_next']-meta['sigma'])*reconstructed
+        expected = captured_euler_state(values, meta)
         residual = float(np.abs(expected-values['next_latent']).max())
         if not np.allclose(expected, values['next_latent'], rtol=1e-6, atol=1e-6):
             raise ValueError('Sampler did not consume the captured latent/CFG velocity')
@@ -244,6 +264,8 @@ def response_rows(root):
             velocity = a['cfg_velocity'].astype(float)-b['cfg_velocity']
             next_delta = a['next_latent'].astype(float)-b['next_latent']
             predicted_delta = delta+(meta['sigma_next']-meta['sigma'])*velocity
+            if meta.get('cfg_dtype', 'torch.float32') != 'torch.float32':
+                predicted_delta = captured_euler_state(a, meta).astype(float) - captured_euler_state(b, meta)
             rows.append(dict(arm=arm, step=step, sigma=meta['sigma'], guidance_update_rms=rms(update),
                 latent_difference_before_sampler_rms=rms(delta), cfg_velocity_difference_rms=rms(velocity),
                 cond_velocity_difference_rms=rms(a['cond_velocity'].astype(float)-b['cond_velocity']),

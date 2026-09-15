@@ -45,7 +45,7 @@ import torch.utils.checkpoint
 
 
 def _flatten_heads(x: torch.Tensor) -> torch.Tensor:
-    """(B, S, heads, D) or (B, heads, S, D) -> (S, heads*D) for the last batch item."""
+    """Wan (B, S, heads, D) -> (S, heads*D) for the last batch item."""
     if x.ndim != 4:
         raise ValueError(f"expected a 4D q/k tensor, got shape {tuple(x.shape)}")
     return x[-1].flatten(1)
@@ -124,6 +124,10 @@ def compute_motion_flow(
         head_index: optional experimental AMF head selection. None preserves
               mean logits over all heads. Does not change native attention.
     """
+    if q.ndim != 4 or q.shape != k.shape:
+        raise ValueError('AMF requires matching Wan B,S,heads,D query and key tensors')
+    if min(h, w, nframes) <= 0 or (head_dim is not None and head_dim != q.shape[-1]):
+        raise ValueError('AMF requires positive video grid dimensions and the native head dimension')
     if head_index is not None:
         if (q.ndim != 4 or q.shape != k.shape or type(head_index) is not int
                 or not 0 <= head_index < q.shape[2]):
