@@ -6,12 +6,16 @@ held fixed across clean/step-9 inputs. It does not change the AMF objective.
 import copy
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
 
 from guidance_utils.wan_reference_diagnostics import reference_images, image_motion, comparison
+
+STEP39_CRITERIA = dict(min_patches_per_pair=20, relative_cosine_min=.8,
+                       relative_amplitude_range=[.5,1.5], static_epe_max=1.)
 
 
 def digest(path):
@@ -21,13 +25,27 @@ def digest(path):
 def checked_plan(prepared):
     prepared=Path(prepared)
     plan=json.loads((prepared/'plan.json').read_text())
-    if (plan['controls']!=['forward','reverse','static'] or plan['states']!=['clean','step_09']
+    expected_states = ['step_39'] if plan.get('protocol')=='step39' else ['clean','step_09']
+    if (plan['controls']!=['forward','reverse','static'] or plan['states']!=expected_states
             or plan['noise_seed']!=29):
-        raise ValueError('The six-forward protocol changed; no additional controls/timings are allowed')
+        raise ValueError('The fixed readout protocol changed; no additional controls/timings are allowed')
+    if plan.get('protocol')=='step39' and plan.get('criteria')!=STEP39_CRITERIA:
+        raise ValueError('Step-39 readout criteria changed')
     for name,expected in plan['input_sha256'].items():
         actual=digest(prepared/name)
         if actual!=expected:
             raise ValueError(f'Input changed: {name}; expected={expected}, actual={actual}')
+    baseline_meta=prepared/'baseline/metadata.json'
+    if plan.get('protocol')=='step39' and baseline_meta.is_file():
+        core=json.loads(baseline_meta.read_text()).get('source_sha256',{})
+        root=Path(__file__).resolve().parents[1]
+        for name,expected in core.items():
+            if name=='motion_guidance_wan.py' or name.startswith('guidance_utils/'):
+                raw=(root/name).read_bytes()
+                actual=hashlib.sha256(raw).hexdigest()
+                normalized=hashlib.sha256(raw.replace(b'\r\n',b'\n')).hexdigest()
+                if expected not in (actual,normalized):
+                    raise ValueError(f'Core source changed beyond timing: {name}; expected={expected}, actual={actual}, normalized={normalized}')
     return plan
 
 
@@ -97,6 +115,39 @@ def prepare(saved_run, output):
     return output
 
 
+def prepare_step39(previous, output):
+    """Reuse verified RGB controls/measurements; old acceptance folder not needed."""
+    previous, output = Path(previous).resolve(), Path(output).resolve()
+    old = checked_plan(previous)
+    if old['states']!=['clean','step_09']:
+        raise ValueError('Use the completed clean/step-9 correspondence run as baseline')
+    metadata=json.loads((previous/'readouts/metadata.json').read_text())
+    expected=[(c,s) for c in old['controls'] for s in old['states']]
+    if [(e['control'],e['state']) for e in metadata['events']]!=expected:
+        raise ValueError('Baseline is incomplete')
+    if (metadata['conditioning_sha256']!=old['conditioning_sha256'] or metadata['sigmas']!=old['sigmas']
+            or metadata['timesteps']!=old['timesteps'] or Path(metadata['checkpoint']).name!=old['checkpoint_revision']):
+        raise ValueError('Baseline checkpoint, conditioning, or schedule mismatch')
+    if output.exists(): raise FileExistsError(f'Use a fresh diagnostic directory: {output}')
+    output.mkdir(parents=True)
+    for name in [*old['input_sha256'], 'rgb_regions.jpg']:
+        dest=output/name; dest.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(previous/name,dest)
+    baseline=output/'baseline'; baseline.mkdir()
+    for name in ('plan.json','correspondence_report.json','source_revision.json','readouts/metadata.json'):
+        shutil.copyfile(previous/name,baseline/Path(name).name)
+    plan=copy.deepcopy(old)
+    plan.update(protocol='step39',states=['step_39'],max_transformer_forwards=3,
+        criteria=copy.deepcopy(STEP39_CRITERIA),
+        expected_noise_sha256=metadata['noise_sha256'],previous_plan_sha256=digest(previous/'plan.json'),
+        target_prompt='A camel walking across a dusty paddock beside a metal fence.',
+        model='Wan-AI/Wan2.1-T2V-14B-Diffusers')
+    for name in ('saved_run','saved_manifest_sha256'): plan.pop(name,None)
+    plan['input_sha256'].update({str(p.relative_to(output)):digest(p) for p in baseline.iterdir()})
+    (output/'plan.json').write_text(json.dumps(plan,indent=2))
+    return output
+
+
 def load_model(prepared):
     """Reuse saved config/checkpoint, omitting unused reference setup forwards."""
     import torch
@@ -107,14 +158,20 @@ def load_model(prepared):
     plan = checked_plan(prepared)
     if (Path(prepared)/'readouts').exists():
         raise RuntimeError('Readout budget already started; reuse saved captures without loading a model')
-    saved = Path(plan['saved_run'])
-    if digest(saved/'manifest.json') != plan['saved_manifest_sha256']:
-        raise ValueError('Saved manifest changed')
-    meta = json.loads((saved/'manifest.json').read_text())
+    if plan.get('protocol')=='step39':
+        from benchmark.wan_port_acceptance import acceptance_config
+        meta=plan
+        config=acceptance_config('',Path(prepared)/'controls/forward',Path(prepared)/'model_setup',plan['target_prompt'])
+    else:
+        saved = Path(plan['saved_run'])
+        if digest(saved/'manifest.json') != plan['saved_manifest_sha256']:
+            raise ValueError('Saved manifest changed')
+        meta = json.loads((saved/'manifest.json').read_text())
+        config = OmegaConf.create(copy.deepcopy(meta['config']))
     if not torch.cuda.is_available() or torch.cuda.get_device_properties(0).total_memory < 35*2**30:
         raise RuntimeError('Use A100 40 GB/high RAM or 80 GB')
-    print('SETUP: one pinned model load; zero transformer forwards. Then at most six readout forwards.',flush=True)
-    config = OmegaConf.create(copy.deepcopy(meta['config']))
+    budget=len(plan['controls'])*len(plan['states'])
+    print(f'SETUP: one pinned model load; zero transformer forwards. Then at most {budget} readout forwards.',flush=True)
     config.model_key = snapshot_download(meta['model'],revision=meta['checkpoint_revision'])
     config.output_path = str(Path(prepared)/'model_setup')
     config.video_path = str(Path(prepared)/'controls/forward')
@@ -138,6 +195,7 @@ def load_model(prepared):
 
 def capture(g, prepared):
     import torch
+    from importlib.metadata import version
     from motion_guidance_wan import WanGuidance
     from guidance_utils.wan_motion_flow_utils import compute_motion_flow
     from probe_wan_response import tensor_hash
@@ -156,19 +214,25 @@ def capture(g, prepared):
         raise ValueError(f"Checkpoint changed: expected={plan['checkpoint_revision']}, actual={g.config.model_key}")
     if g.scheduler.sigmas.tolist()!=plan['sigmas'] or g.timesteps.cpu().tolist()!=plan['timesteps']:
         raise ValueError('Diagnostic schedule changed')
-    print('HYPOTHESIS: block-20 target AMF loses known subject direction at early noise. '
-          'EXPECTED: a reliable readout distinguishes opposite RGB travel and near-zero static motion. '
-          'LIMIT: 6 truncated transformer forwards, 3 VAE encodes, zero optimization/generation.',flush=True)
-    result.mkdir()
+    budget=len(plan['controls'])*len(plan['states'])
+    hypothesis=('Lower noise at step 39 restores useful block-20 correspondence.' if plan.get('protocol')=='step39'
+                else 'Block-20 target AMF loses known subject direction at early noise.')
+    print(f'HYPOTHESIS: {hypothesis} '
+          'EXPECTED: opposite relative-motion signs and substantially reduced static error. '
+          f'LIMIT: {budget} truncated transformer forwards, 3 VAE encodes, zero optimization/generation.',flush=True)
     old_path, old_output = g.config.video_path, g.output_path
     old_rope = g.transformer.trainable_rope
-    g.transformer.trainable_rope = None
     noise = torch.randn(g.init_latents.shape,generator=torch.Generator(device=g.device).manual_seed(plan['noise_seed']),
                         device=g.device,dtype=torch.float32)
+    if plan.get('expected_noise_sha256') and tensor_hash(noise)!=plan['expected_noise_sha256']:
+        raise ValueError(f"Noise mismatch: expected={plan['expected_noise_sha256']}, actual={tensor_hash(noise)}")
+    result.mkdir()
+    g.transformer.trainable_rope = None
     events = []
     source_root = Path(__file__).resolve().parents[1]
     sources = [Path(__file__),source_root/'motion_guidance_wan.py',*sorted((source_root/'guidance_utils').glob('*.py'))]
     metadata = dict(noise_sha256=tensor_hash(noise),noise_seed=plan['noise_seed'],
+        packages={name:version(name) for name in ('torch','diffusers','transformers','huggingface-hub','ftfy','accelerate')},
         conditioning_sha256=tensor_hash(g.guidance_embeds),checkpoint=g.config.model_key,
         sigmas=g.scheduler.sigmas.tolist(),timesteps=g.timesteps.cpu().tolist(),
         source_sha256={str(p.relative_to(source_root)):digest(p) for p in sources},events=events)
@@ -179,8 +243,9 @@ def capture(g, prepared):
                 g.output_path=str(result/control); Path(g.output_path).mkdir()
                 latent=WanGuidance.load_latent(g).float()
                 for label in plan['states']:
-                    sigma=0. if label=='clean' else float(g.scheduler.sigmas[9])
-                    time=torch.zeros_like(g.timesteps[:1]) if label=='clean' else g.timesteps[9:10]
+                    index={'clean':None,'step_09':9,'step_39':39}[label]
+                    sigma=0. if index is None else float(g.scheduler.sigmas[index])
+                    time=torch.zeros_like(g.timesteps[:1]) if index is None else g.timesteps[index:index+1]
                     x=(1-sigma)*latent+sigma*noise
                     g._set_kv_mode(g.config.guidance_blocks,inject=False,copy=True)
                     try:
@@ -204,7 +269,7 @@ def capture(g, prepared):
     finally:
         g.config.video_path, g.output_path = old_path, old_output
         g.transformer.trainable_rope=old_rope
-    if len(events)!=6: raise RuntimeError('Incomplete readout budget')
+    if len(events)!=budget: raise RuntimeError('Incomplete readout budget')
     return analyze(prepared)
 
 
@@ -236,5 +301,52 @@ def analyze(prepared):
     report=dict(status='Readout diagnostic only; decoded motion transfer remains unproven.',
                 caveats=[plan['roi_method'],plan['rgb_metric'],plan['first_pair_caveat']],rows=rows)
     (prepared/'correspondence_report.json').write_text(json.dumps(report,indent=2))
+    if plan.get('protocol')=='step39':
+        comparison_report=timing_report(prepared)
+        print('Step-39 readout screen:',comparison_report['ready_for_decoded_comparison'])
+        for reason in comparison_report['failures']: print(' ',reason)
     print('Saved correspondence_report.json; inspect per-pair support and ROI overlay before interpreting signs.')
     return report
+
+
+def timing_report(prepared):
+    prepared=Path(prepared)
+    plan=json.loads((prepared/'plan.json').read_text())
+    previous=json.loads((prepared/'baseline/correspondence_report.json').read_text())
+    current=json.loads((prepared/'correspondence_report.json').read_text())
+    rows=previous['rows']+current['rows']
+    summary=[]; failures=[]
+    for control in plan['controls']:
+        for state in ('clean','step_09','step_39'):
+            for region in ('subject','background','subject_relative_to_background'):
+                chosen=[r for r in rows if r['control']==control and r['state']==state and r['field']=='soft'
+                        and r['region']==region and not r['includes_corrupt_endpoint']]
+                values=dict(control=control,state=state,region=region,pairs=len(chosen))
+                for key in ('amf_dx','image_dx','cosine','epe'):
+                    numbers=[r[key] for r in chosen if r[key] is not None]
+                    values[key]=float(np.mean(numbers)) if numbers else None
+                summary.append(values)
+                if state!='step_39': continue
+                expected_pairs=plan['grid'][0]-1-(control!='static')
+                if len(chosen)!=expected_pairs or any(r['patches']<20 for r in chosen):
+                    failures.append(f'{control}/{region}: insufficient pair or image-flow support')
+                if values['epe'] is None or not np.isfinite(values['epe']):
+                    failures.append(f'{control}/{region}: invalid endpoint error')
+                if control=='static':
+                    if values['epe'] is None or values['epe']>STEP39_CRITERIA['static_epe_max']:
+                        failures.append(f'static/{region}: mean error exceeds one patch')
+                elif region=='subject_relative_to_background':
+                    if not chosen or any(r['amf_dx'] is None or r['image_dx'] is None or
+                                         not np.isfinite(r['amf_dx']*r['image_dx']) or
+                                         r['amf_dx']*r['image_dx']<=0 for r in chosen):
+                        failures.append(f'{control}: relative-motion sign incorrect in one or more pairs')
+                    if values['cosine'] is None or not np.isfinite(values['cosine']) or values['cosine']<STEP39_CRITERIA['relative_cosine_min']:
+                        failures.append(f'{control}: mean relative-motion cosine below 0.8')
+                    gain=abs(values['amf_dx']/values['image_dx']) if values['image_dx'] and values['amf_dx'] is not None else 0.
+                    if not .5<=gain<=1.5:
+                        failures.append(f'{control}: relative horizontal amplitude outside [0.5,1.5] of RGB estimate')
+    result=dict(ready_for_decoded_comparison=not failures,port_success=False,failures=failures,
+                criteria=STEP39_CRITERIA,summary=summary,
+                meaning='Readout screening only. Passing does not demonstrate guided video motion transfer.')
+    (prepared/'timing_comparison.json').write_text(json.dumps(result,indent=2))
+    return result

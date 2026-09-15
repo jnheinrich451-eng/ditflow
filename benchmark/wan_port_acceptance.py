@@ -34,6 +34,22 @@ def difference(a, b):
                 changed_fraction=float((delta != 0).float().mean()))
 
 
+def acceptance_config(model_path, video, output, prompt, seed=1, cpu_offload=True):
+    """Shared complete configuration for acceptance and matched readout tests."""
+    return OmegaConf.merge(OmegaConf.load('configs/guidance_config_wan.yaml'), dict(
+        model_key=str(model_path), video_path=str(Path(video).resolve()), output_path=str(output),
+        target_prompt=prompt, negative_prompt=WAN_NEGATIVE_PROMPT, source_prompt='', seed=seed,
+        height=480, width=832, num_frames=21, num_inference_steps=50,
+        scheduler='unipc', flow_shift=3., guidance_scale=5.,
+        guidance_blocks=[20], injection_blocks=[], guidance_timestep_range=[50,40],
+        lr=[.002,.001], optimization_steps=5, motion_temp=2., flow_head=None,
+        flow_max_disp=None, flow_min_conf=None, flow_region_masks=None,
+        loss_type='flow', flow_loss='mse', threshloss=True, argmax_motion_flow=True,
+        opt_mode='latent', guidance_mode='latent', inject_embeds=False, save_embeds=False,
+        save_format='mp4', verbose=False, reference_only=False, probe=False, probe_rope=False,
+        enable_model_cpu_offload=cpu_offload, enable_gradient_checkpointing=True))
+
+
 @contextmanager
 def native_transformer(model):
     """Use the installed native forward/attention with the SAME loaded weights."""
@@ -81,18 +97,7 @@ class AcceptanceRun:
         commit = HfApi().model_info(repo, revision=revision).sha
         print('SETUP: one pinned checkpoint load and one reference feature extraction; no generation yet.', flush=True)
         model_path = snapshot_download(repo, revision=commit)
-        config = OmegaConf.merge(OmegaConf.load('configs/guidance_config_wan.yaml'), dict(
-            model_key=model_path, video_path=str(Path(video).resolve()), output_path=str(self.root/'setup'),
-            target_prompt=prompt, negative_prompt=WAN_NEGATIVE_PROMPT, source_prompt='', seed=seed,
-            height=480, width=832, num_frames=21, num_inference_steps=50,
-            scheduler='unipc', flow_shift=3., guidance_scale=5.,
-            guidance_blocks=[20], injection_blocks=[], guidance_timestep_range=[50,40],
-            lr=[.002,.001], optimization_steps=5, motion_temp=2., flow_head=None,
-            flow_max_disp=None, flow_min_conf=None, flow_region_masks=None,
-            loss_type='flow', flow_loss='mse', threshloss=True, argmax_motion_flow=True,
-            opt_mode='latent', guidance_mode='latent', inject_embeds=False, save_embeds=False,
-            save_format='mp4', verbose=False, reference_only=False, probe=False, probe_rope=False,
-            enable_model_cpu_offload=cpu_offload, enable_gradient_checkpointing=True))
+        config = acceptance_config(model_path, video, self.root/'setup', prompt, seed, cpu_offload)
         self.config = OmegaConf.to_container(config, resolve=True)
         self.g = WanGuidance(config)
         self._finish_setup(repo, commit)

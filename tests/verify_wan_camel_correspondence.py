@@ -12,11 +12,11 @@ from PIL import Image
 from diffusers import AutoencoderKLWan, WanPipeline
 from verify_wan_decisive import RealSamplerTests
 from motion_guidance_wan import WanGuidance
-from benchmark.wan_camel_correspondence import capture, digest, controls
+from benchmark.wan_camel_correspondence import capture, digest, controls, STEP39_CRITERIA
 from probe_wan_response import tensor_hash
 
 
-def main():
+def main(step39=False):
     with tempfile.TemporaryDirectory() as directory:
         root=Path(directory)
         g,_=RealSamplerTests().build('amf',str(root/'fixture'))
@@ -34,6 +34,13 @@ def main():
                   grid=[2,2,3],noise_seed=29,input_sha256={},roi_method='test',rgb_metric='test',first_pair_caveat='test',
                   checkpoint_revision=g.config.model_key,conditioning_sha256=tensor_hash(g.guidance_embeds),
                   sigmas=g.scheduler.sigmas.tolist(),timesteps=g.timesteps.cpu().tolist())
+        budget=3 if step39 else 6
+        if step39:
+            plan.update(protocol='step39',states=['step_39'],criteria=STEP39_CRITERIA,
+                expected_noise_sha256=tensor_hash(torch.randn(g.init_latents.shape,
+                    generator=torch.Generator(device=g.device).manual_seed(29),device=g.device,dtype=torch.float32)))
+            baseline=root/'baseline'; baseline.mkdir()
+            (baseline/'correspondence_report.json').write_text(json.dumps(dict(rows=[])))
         for name,sequence in controls(frames).items():
             folder=root/'controls'/name; folder.mkdir(parents=True)
             for i,frame in enumerate(sequence):
@@ -50,10 +57,15 @@ def main():
               patch.object(g.vae,'encode',wraps=g.vae.encode) as encodes,
               patch.object(g.scheduler,'step',side_effect=AssertionError('Diagnostic must not sample'))):
             report=capture(g,root)
-            assert forwards.call_count==6 and encodes.call_count==3
+            assert forwards.call_count==budget and encodes.call_count==3
+            if step39:
+                assert all(float(c.args[2][0])==float(g.timesteps[39]) for c in forwards.call_args_list)
         assert g.config.video_path==old_path and g.output_path==old_output
-        assert len(report['rows'])==36
-        assert len(json.loads((root/'readouts/metadata.json').read_text())['events'])==6
+        assert len(report['rows'])==budget*6
+        assert len(json.loads((root/'readouts/metadata.json').read_text())['events'])==budget
+        if step39:
+            screen=json.loads((root/'timing_comparison.json').read_text())
+            assert screen['port_success'] is False and screen['ready_for_decoded_comparison'] is False
         for path in (root/'readouts').glob('*.npz'):
             with np.load(path) as data:
                 assert data['hard'].shape==(4,6,2) and data['soft'].shape==(4,6,2)
@@ -62,7 +74,7 @@ def main():
         try: capture(g,root)
         except RuntimeError as error: assert 'budget' in str(error)
         else: raise AssertionError('Second capture exceeded budget')
-        print('PASS: 3 real VAE encodes, 6 real truncated forwards with CPU offload, no scheduler steps, saved Q/K, replay budget.')
+        print(f'PASS: 3 real VAE encodes, {budget} real truncated forwards with CPU offload, no scheduler steps, saved Q/K, replay budget.')
 
 
-if __name__=='__main__': main()
+if __name__=='__main__': main(step39='--step39' in sys.argv)

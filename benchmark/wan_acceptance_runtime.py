@@ -72,3 +72,52 @@ def restore_results(archive, destination):
         bundle.extractall(destination)
     receipt.write_text(json.dumps(dict(archive=str(archive), archive_sha256=digest), indent=2))
     return destination
+
+
+def restore_correspondence_inputs(archive, destination):
+    """Read only controls/reports from the old ZIP, leaving its large Q/K zipped."""
+    archive, destination=Path(archive),Path(destination).resolve()
+    existing=destination.exists()
+    with zipfile.ZipFile(archive) as bundle:
+        plan_bytes=bundle.read('plan.json')
+        plan=json.loads(plan_bytes)
+        names=set(plan['input_sha256'])|{'plan.json','correspondence_report.json','source_revision.json',
+                                         'rgb_regions.jpg','readouts/metadata.json'}
+        for name in names:
+            if not (destination/name).resolve().is_relative_to(destination):
+                raise ValueError('Unsafe archive path: '+name)
+            if name not in bundle.namelist(): raise ValueError('Missing correspondence input: '+name)
+        destination.mkdir(parents=True,exist_ok=True)
+        for name in sorted(names):
+            data=bundle.read(name)  # ZIP CRC validates the selected member.
+            if name in plan['input_sha256']:
+                actual=hashlib.sha256(data).hexdigest()
+                if actual!=plan['input_sha256'][name]:
+                    raise ValueError(f"Input changed: {name}; expected={plan['input_sha256'][name]}, actual={actual}")
+            path=destination/name
+            if existing:
+                actual=hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else 'missing'
+                expected=hashlib.sha256(data).hexdigest()
+                if actual!=expected:
+                    raise ValueError(f'Existing restored file differs: {path}; expected={expected}, actual={actual}')
+            else:
+                path.parent.mkdir(parents=True,exist_ok=True); path.write_bytes(data)
+    return destination
+
+
+def save_diagnostic_archives(prepared, drive_directory):
+    """Keep full evidence in Drive and provide a small first-review archive."""
+    import shutil
+    prepared,drive_directory=Path(prepared).resolve(),Path(drive_directory)
+    drive_directory.mkdir(parents=True,exist_ok=True)
+    full=Path(shutil.make_archive(str(prepared),'zip',root_dir=prepared))
+    full_destination=drive_directory/full.name
+    shutil.copy2(full,full_destination)
+    small=drive_directory/(prepared.name+'_review.zip')
+    names=['plan.json','correspondence_report.json','timing_comparison.json','source_revision.json',
+           'rgb_regions.jpg','rgb_motion.npz','readouts/metadata.json']
+    names += [str(p.relative_to(prepared)) for p in (prepared/'baseline').glob('*.json')]
+    with zipfile.ZipFile(small,'w',zipfile.ZIP_DEFLATED) as archive:
+        for name in names:
+            if (prepared/name).is_file(): archive.write(prepared/name,name)
+    return dict(full=str(full_destination),review=str(small),review_bytes=small.stat().st_size)
