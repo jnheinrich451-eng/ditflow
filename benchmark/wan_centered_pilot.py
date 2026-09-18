@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw
 
 from benchmark.inspect_wan_static_matches import sha
 from benchmark.wan_source_fingerprints import verify_parity_sources
+from benchmark.wan_runtime_preflight import verify_runtime
 from benchmark.wan_port_acceptance import acceptance_config, difference, write_json
 from guidance_utils.wan_centered_amf import centered_pair_flow
 from guidance_utils.wan_reference_diagnostics import reference_images
@@ -45,9 +46,7 @@ def preflight(acceptance, gpu_report):
     mixed = [r['file'] for r in sources if r['method'] == 'audited_mixed_line_endings']
     if mixed:
         print('Verified legacy mixed line endings; source content unchanged: ' + ', '.join(mixed), flush=True)
-    for package, expected in meta['packages'].items():
-        if version(package) != expected:
-            raise ValueError(f'Runtime drift: {package}: expected {expected}, found {version(package)}')
+    verify_runtime({**meta['packages'], 'tokenizers': '0.22.2'})
     revision = '38ec498cb3208fb688890f8cc7e94ede2cbd7f68'
     if meta['checkpoint_revision'] != revision or meta['mode'] != 'T2V':
         raise ValueError('This pilot is pinned to the tested T2V checkpoint')
@@ -74,9 +73,26 @@ def load_pilot(acceptance, gpu_report, output):
                   conditioning_sha256=tensor_hash(g.guidance_embeds),
                   source_conditioning_sha256=tensor_hash(g.source_embeds),
                   rope_sha256=tensor_hash(g.transformer.init_rope))
-    for name, actual in checks.items():
-        if actual != meta[name]:
-            raise ValueError(f'Frozen baseline mismatch: {name}')
+    mismatches = [name for name, actual in checks.items() if actual != meta[name]]
+    diagnostics = dict(
+        passed=not mismatches, mismatches=mismatches,
+        checks={name:dict(expected=meta[name], actual=actual, matched=actual == meta[name]) for name,actual in checks.items()},
+        runtime=verify_runtime({**meta['packages'], 'tokenizers': '0.22.2'}),
+        baseline_gpu=meta.get('gpu'), current_gpu=torch.cuda.get_device_name(),
+        cuda=torch.version.cuda, matmul_allow_tf32=torch.backends.cuda.matmul.allow_tf32,
+        prompt_matches={name:config[name] == meta['config'][name]
+                        for name in ('target_prompt','negative_prompt','source_prompt')},
+        conditioning=dict(guidance_shape=list(g.guidance_embeds.shape), guidance_dtype=str(g.guidance_embeds.dtype),
+            positive_sha256=tensor_hash(g.guidance_embeds[1:2]), negative_sha256=tensor_hash(g.guidance_embeds[:1]),
+            source_shape=list(g.source_embeds.shape), source_dtype=str(g.source_embeds.dtype),
+            tokenizer_class=type(g.pipe.tokenizer).__name__, text_encoder_training=g.pipe.text_encoder.training,
+            text_encoder_attention_backend=getattr(g.pipe.text_encoder.config, '_attn_implementation', None)),
+        limitation='Legacy baseline stores combined embedding hashes, not embedding tensors; numerical error cannot be inferred from hashes.')
+    report_path = output / 'setup_diagnostics.json'
+    write_json(report_path, diagnostics)
+    if mismatches:
+        raise ValueError('Frozen baseline mismatch: ' + ', '.join(mismatches) +
+                         f'. Diagnostics saved to {report_path}. Do not rerun the model load; inspect this report first.')
     if g.scheduler.sigmas.tolist() != meta['sigmas'] or g.timesteps.cpu().tolist() != meta['timesteps']:
         raise ValueError('Scheduler mismatch')
     manifest = dict(baseline_manifest_sha256=sha(Path(acceptance) / 'manifest.json'),
