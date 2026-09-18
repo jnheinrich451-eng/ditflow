@@ -13,6 +13,7 @@ import torch
 from PIL import Image, ImageDraw
 
 from benchmark.inspect_wan_static_matches import sha
+from benchmark.wan_source_fingerprints import verify_parity_sources
 from benchmark.wan_port_acceptance import acceptance_config, difference, write_json
 from guidance_utils.wan_centered_amf import centered_pair_flow
 from guidance_utils.wan_reference_diagnostics import reference_images
@@ -40,17 +41,10 @@ def preflight(acceptance, gpu_report):
     root = Path(__file__).resolve().parents[1]
     if gate['kernel_sha256'] != sha(root / 'guidance_utils/wan_centered_amf.py'):
         raise ValueError('Candidate kernel changed after the GPU test')
-    # Allow only line-ending conversion when reusing the established parity.
-    core = ('motion_guidance_wan.py', 'guidance_utils/wan_transformer.py',
-            'guidance_utils/wan_modules.py', 'guidance_utils/wan_motion_flow_utils.py',
-            'guidance_utils/wan_guidance_schedule.py', 'guidance_utils/motion_probe.py',
-            'configs/guidance_config_wan.yaml')
-    for name in core:
-        raw = (root / name).read_bytes()
-        lf = raw.replace(b'\r\n', b'\n')
-        possible = {hashlib.sha256(b).hexdigest() for b in (raw, lf, lf.replace(b'\n', b'\r\n'))}
-        if meta['source_sha256'][name] not in possible:
-            raise ValueError(f'Core source changed; cannot reuse native parity: {name}')
+    sources = verify_parity_sources(root, meta['source_sha256'])
+    mixed = [r['file'] for r in sources if r['method'] == 'audited_mixed_line_endings']
+    if mixed:
+        print('Verified legacy mixed line endings; source content unchanged: ' + ', '.join(mixed), flush=True)
     for package, expected in meta['packages'].items():
         if version(package) != expected:
             raise ValueError(f'Runtime drift: {package}: expected {expected}, found {version(package)}')
@@ -87,6 +81,7 @@ def load_pilot(acceptance, gpu_report, output):
         raise ValueError('Scheduler mismatch')
     manifest = dict(baseline_manifest_sha256=sha(Path(acceptance) / 'manifest.json'),
                     gpu_report_sha256=sha(gpu_report), baseline=meta, checks=checks,
+                    source_reuse=verify_parity_sources(Path(__file__).resolve().parents[1], meta['source_sha256']),
                     experiment=dict(target_readout='centered logits, multiplier 8', reference_readout='unchanged hard argmax, multiplier 2',
                         pairs='five adjacent latent pairs', guidance_index=39, guidance_timestep=float(g.timesteps[39]),
                         guidance_sigma=float(g.scheduler.sigmas[39]), optimization_steps=5, optimizer='Adam', lr=.001,
