@@ -1,0 +1,21 @@
+# extract-v1 — the frozen measuring device of the experiment chapter
+# (docs/experiment-pipeline-v1.md S0). NO gate thresholds live here (those are
+# in calibration.lock.yaml, read-only); extract.py computes no metrics.
+# Any edit here = a new extract schema/version, never an in-place change.
+
+extract:
+  schema: extract-v1
+  out_dir: ${paths.drive_root}/extract/extract-v1   # <out_dir>/<clip_id>/{raw.npz,derived.npz,derived.json}
+  stages: [A, B, C, C5]                             # Module-1 stages run per video (subprocess each)
+
+# S0 output normalisation — HUMAN DECISION (S4 clip-set freeze). null = not
+# frozen yet: the check is skipped and "unfrozen" is written to provenance.
+# Once set, a video that does not match is REFUSED (the extractor never
+# resamples; normalise upstream, K/provenance rule CLAUDE.md §3.6).
+canonical:
+  frames: null
+  height: null
+  width: null
+
+derived:
+  bg_depth_percentiles: [5, 95]    # Z_near / Z_far for delta_parallax (plan S3)

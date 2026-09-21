@@ -1,0 +1,26 @@
+# Stage A.5 — ViPE side-channel bake-off (skills/SKILL_stage_a5_vipe_bakeoff.md §1).
+# Read-only w.r.t. Stage A: writes ONLY under paths.out_dir.
+# ${paths.*} interpolates against configs/stage_a.yaml (config.load_stage_a5).
+
+vipe:
+  repo: "https://github.com/nv-tlabs/vipe.git"      # human-confirmed 2026-08-03
+  install: pypi           # `pip install nvidia-vipe` (human choice: convenient path);
+                          # source dist — compiles CUDA extensions at install time
+  checkpoint: null        # N/A by design: ViPE is a pipeline of component models
+                          # (MoGe, UniDepth-L, Video-Depth-Anything, GeoCalib,
+                          # SAM/AOT/GroundingDINO), each auto-downloaded on first use
+  mode: default           # pinhole preset; `no_vda` is the documented fallback if
+                          # Video-Depth-Anything OOMs on L4 (V6 measures)
+
+paths:
+  out_dir: ${paths.drive_root}/bakeoff/stage_a5     # reports, plots, per-clip vipe cache
+
+clips:
+  # SAME clips as Stage A's calibration set (human-designated):
+  # camera-following / static / third (mid-entry category absent from dataset)
+  calibration_set: ["000000000035.1.003", "rallye", "000000000265.2.003"]
+
+align:
+  static_proxy_quantile: 0.25   # lowest-excursion tracks as static PROXY (§3.1) — not Stage B's classifier
+  min_baseline: 0.05            # relative path length below which Umeyama-on-centers is degenerate (§4.1)
+  sigma_conf_min: 0.6           # min D4RT confidence for depth-ratio pixels (§4.2)

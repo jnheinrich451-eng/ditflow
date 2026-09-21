@@ -1,0 +1,122 @@
+# Stage B estimator settings (SKILL §2; appendix 12.6: these are NOT gates —
+# gate thresholds live in calibration.lock.yaml, read-only to Claude Code).
+
+drift:
+  irls_iters: 10
+  irls_tol: 1.0e-8
+  huber_c: 1.345          # x robust sigma (appendix 12.2)
+  segment_smoothing: none  # {none | median3} within segments only (§4.2); ablatable
+
+scoring:
+  boundary_score_exclusion: 1   # frames each side of a window boundary (§4.2)
+  z_min_frac: 0.05              # Z_min = frac x clip-median valid depth (statistic guard,
+                                # mirrors Stage A's A-G2 definition)
+  f_score_min: 8                # min valid non-boundary frames for a track to be labeled
+                                # (rho denominator, appendix 12.2)
+  depth_bands: 0                # 0 = global mu/MAD; 3 = log-spaced per-band variant
+  time_bands: segment           # null-statistics per window segment (measured
+                                # revision 2026-08-08: X0 noise grows with
+                                # temporal distance + steps at boundaries, so a
+                                # global noise floor labels quiet late-window
+                                # background as dynamic — the late-frame
+                                # false-positive flood on the follow clip).
+                                # none = global-floor ablation
+  track_quantile_weighted: true # m_i as eta-weighted Q75 (harness-measured
+                                # revision of the appendix's unweighted Q75:
+                                # one outlier entry corrupts two adjacent
+                                # pairs; unweighted precision 0.76 at
+                                # tau_z=2.5). false = appendix-literal ablation
+
+clustering:
+  de_gauge: true                # divide X0 by fitted gauge g_t before pairwise
+                                # geometry (2026-08-09 diagnosis: static-pair
+                                # e_ij grew +63% near->far purely from the
+                                # gauge). false = raw-X0 ablation
+  subsample_cap: 500            # pipeline §1.3.3 compute cap
+  strata_grid: [3, 3, 3]        # image-x x image-y x depth strata for the subsample
+  dir_floor_mult: 1.2           # direction edges require both endpoints'
+                                # median residual SPEED > mult x static floor
+                                # (2026-08-08: random r_bar directions of noise
+                                # tracks percolated the graph; 2026-08-08b:
+                                # floor moved to speed; 2026-08-09b: 2.0 -> 1.2
+                                # — the drift correction radially ABSORBS a
+                                # followed object's motion (car 0.037 ->
+                                # measured 0.0106 vs floor threshold 0.0198:
+                                # the median car track was rejected); the
+                                # eta gate now covers what the strict floor
+                                # was protecting against)
+  eta_gate_frac: 0.8            # cluster candidates need mean track eta >=
+                                # frac x labeled-population median (2026-08-09b:
+                                # correlated far-field noise forms fake rigid
+                                # coherent clusters — the sky blob — which are
+                                # exactly the low-eta tracks)
+  direction_mode: segment       # {segment | r_bar}. segment (2026-08-09):
+                                # cosine on per-window-segment mean motions,
+                                # median over shared segments — whole-track
+                                # r_bar cancels for turning objects and small
+                                # vectors have noise directions, which killed
+                                # the turning car's edges. r_bar = appendix-
+                                # literal ablation
+  min_seg_frames: 4             # min valid frames for a segment's r_seg
+
+follow_cam:                     # SKILL §12 addendum (human-approved
+                                # 2026-08-09): a followed object's world
+                                # motion is absent from X0 (measured: car
+                                # 0.09x camera step) — it is DETECTED as the
+                                # camera-frame-quiet compact blob and handed
+                                # to Stage C as a SAM2 seed; world motion is
+                                # composed at the rigid level downstream.
+                                # Provisional values; gates frozen at
+                                # calibration.
+  quiet_frac: 0.5               # quiet: cam-frame speed < frac x clip median
+  min_quiet: 50                 # min blob size to fire
+  compact_frac: 0.5             # blob radius <= frac x Zmed (camera frame)
+  travel_floor_mult: 2.0        # camera step / world floor to fire (a
+                                # static camera cannot fire the branch;
+                                # measured: car 3.46, horse 2.87)
+  min_winner_frac: 0.05         # starvation v1 size arm — kept ONLY for the
+                                # detector-silent case (car winner 77/3593 =
+                                # 0.021); v1 as sole test FAILED on
+                                # 000000000284.0.006 (6.8% background winner)
+  min_winner_blob_overlap: 0.1  # starvation v2 (approved 2026-08-10): with
+                                # the detector fired, the X0 path owns the
+                                # clip only if its winner covers the DETECTED
+                                # subject — measured winner∩blob overlap:
+                                # horse 0.23 (subject; legs-vs-torso split of
+                                # an articulated subject), car/284 both 0.00
+                                # (artifacts); 0.1 sits in the empty zone and
+                                # the failure direction keeps the X0 path
+  core_frac: 0.35               # blob CORE = centroid-proximal fraction
+                                # (v3 arbitration + Stage C prompt anchor)
+  min_winner_core_overlap: 0.07 # arbitration v3 (approved 2026-08-21):
+                                # winner owns the clip only if it overlaps
+                                # the blob CORE — 21-clip corpus evidence:
+                                # legit laterals 0.103-0.187, halo-defeated
+                                # winners 0.000-0.044 (empty gap; 24.0.006
+                                # whole-blob ovl 0.197 masked NOTHING at
+                                # IoU 0.0; 299.1.006 whole-blob 1.00, core
+                                # 0.00). Supersedes min_winner_blob_overlap
+                                # (kept for legacy fc records only).
+  seed_bbox_q: [0.05, 0.95]     # bbox quantiles over blob seed points
+  seed_points_cap: 32
+  min_common: 8                 # min shared tracks for a frame's rigid fit
+
+eps: 1.0e-9
+
+# Calibration-run candidates (run_stage_b --calibrate ONLY; production runs
+# refuse null lock thresholds). The table reports statistics + human-agreement
+# per candidate; the human freezes the lock from it (CLAUDE.md §4).
+calibration:
+  tau_z_candidates: [1.5, 2.0, 2.5, 3.0]
+  lambda_defaults: [1.0, 1.0, 1.0]   # scale-free Score terms (appendix 12.5)
+  # Provisional clustering-threshold formulas (2026-08-09 diagnosis; the
+  # human freezes final values in the lock from the calibration table):
+  tau_r_floor_mult: 1.5   # tau_r = mult x median static-pair e_ij (de-gauged)
+                          # — anchored to the measured noise floor; the old
+                          # Q60-of-local-pairs landed BELOW it (0.0026 vs
+                          # 0.0079 on the car), guaranteeing zero edges
+  tau_x_depth_frac: 0.6   # tau_x = frac x median depth; 0.25 measured smaller
+                          # than the car itself (0.68 units vs ~1.5-unit car)
+  tau_d_provisional: 0.15 # measured within-object segment cosines: horse
+                          # torso-torso median 0.25 -> tau_d=0.5 kills
+                          # same-object edges; per-frame SNR is 1.3-1.8x

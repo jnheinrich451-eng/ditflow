@@ -1,0 +1,52 @@
+# Stage A central config — single source of truth (SKILL §1.4).
+# Fields still wrapped in <...> are HUMAN DECISIONS: fill once, then freeze.
+# config.py refuses to run steps that need an unfilled field.
+
+repo:
+  github_url: "https://github.com/jnheinrich451-eng/mixture-motion-transfer.git"  # cloned at session start
+  hf_dataset_id: "John00451/camera-motion-transfer"                   # private HF dataset with reference clips
+
+paths:
+  drive_root: /content/drive/MyDrive/motion_transfer
+  cache_dir:  ${paths.drive_root}/cache/stage_a     # per-clip frozen-contract bundles (§6)
+  viz_dir:    ${paths.drive_root}/viz/stage_a
+  secrets_gh: /content/drive/MyDrive/secrets/gh_token.env
+  secrets_hf: /content/drive/MyDrive/secrets/hf_token.env
+  data_dir:   /content/data                         # local disk, NOT Drive (read speed)
+  d4rt_dir:   /content/d4rt                         # model repo clone (bootstrap)
+  ckpt_dir:   /content/ckpt                         # checkpoint download target (bootstrap)
+  stage_b_cache: ${paths.drive_root}/cache/stage_b  # Stage B outputs (§9 contract)
+  stage_b_viz:   ${paths.drive_root}/viz/stage_b
+  stage_c_cache: ${paths.drive_root}/cache/stage_c  # Stage C finalized bundles (SKILL_stage_c_mask §7)
+  stage_c_viz:   ${paths.drive_root}/viz/stage_c
+
+d4rt:
+  # Candidate repos (2026-07 survey; confirm choice with human, then freeze):
+  #   https://github.com/Lijiaxin0111/Open-d4rt      <- has released HF checkpoints
+  #   https://github.com/jiangyurong609/d4rt-pytorch <- documented query API, no checkpoints
+  repo: "https://github.com/Lijiaxin0111/Open-d4rt"
+  checkpoint: "Lijiaxin0111/OpenD4RT"               # HF model id (org/name) or absolute path
+  dtype: float32                                    # probe ran fp32: 4.8 GB VRAM on L4, no need to quantize
+  latent_cache_policy: reencode                     # resolved by probe P7 (encode 1.0s, F=0.044 GB)
+
+# ViPE (Stage A.5 bake-off) lives in configs/stage_a5.yaml per its SKILL §1.
+
+video:
+  process_height: 256                               # frozen by probe P5: model input is 256x256;
+                                                    # resize factors go to provenance (§5 rule)
+  max_frames: 81                                    # matches Wan clip length downstream; frames
+                                                    # beyond clip_frames use window stitching
+  fps_policy: keep                                  # resampling is out of Stage A scope
+  depth_stride: 2                                   # depth queried on this stride then bilinearly
+                                                    # upsampled to process res; recorded in
+                                                    # provenance; set 1 for fully dense queries
+
+# Gate thresholds live in configs/calibration.lock.yaml (READ-ONLY to Claude
+# Code; CLAUDE.md §4). config.py merges that file into cfg["thresholds"] and
+# includes it in the config hash. Only algorithm parameters remain here.
+thresholds:
+  anchor_stride: 8  # occupancy sampling stride at anchor discovery (SKILL §5);
+                    # algorithm parameter, not a gate threshold
+
+session:
+  gpu: l4           # {l4 | a100_40 | a100_80}; bump only per §1.1 policy (P7 evidence first)

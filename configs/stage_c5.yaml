@@ -1,0 +1,9 @@
+﻿# Stage C.5 densification settings (SKILL_stage_c5 v1.1; tau_pure is the
+# only new lock entry — null until calibration, human-frozen).
+c5:
+  stride_dense: 3
+  small_subject_px: 4000
+  dilate_px: 5
+  n_dense_max: 30000
+paths:
+  out_dir: ${paths.drive_root}/cache/stage_c5

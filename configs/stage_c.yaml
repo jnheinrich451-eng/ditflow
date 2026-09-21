@@ -1,0 +1,50 @@
+# Stage C estimator settings (SKILL_stage_c_mask §3-§5; provisional pending
+# calibration — gate thresholds live in calibration.lock.yaml, read-only to
+# Claude Code; anything the gates prove sensitive to migrates to the lock).
+
+sam2:
+  variant: base-plus      # locked after Task-0 probe review (P4: 1.89 GiB
+                          # peak, ~9.5 s / 81-frame clip on L4; §10.5: no
+                          # mid-stage change without probe re-run)
+
+prompts:
+  n_pos: 12               # positive points after subsampling (§3)
+  n_pos_min: 4            # densification-fallback floor (§3)
+  n_neg: 12               # negative points (§3)
+  core_frac: 0.35         # BRANCH channel (§1b): fraction of blob tracks
+                          # nearest the blob's 3D centroid = positive pool.
+                          # Task-0 measured the failure of all-blob prompts:
+                          # majority-halo positives made SAM2 segment the
+                          # ROAD and exclude the car (62% frame mask).
+  periphery_frac: 0.35    # BRANCH: farthest fraction of blob = negative
+                          # pool (the halo IS the measured confuser)
+  box_margin_px: 8        # delta_B, process px, for tight core boxes
+  tau_n_px: 48            # X0 channel: negative search radius around the
+                          # positive hull (process px)
+  neg_margin: 1.5         # negatives only beyond margin x subject radius
+                          # (Task-1: small-blob periphery poisoned 058)
+  n_top: 3                # part-coverage: extremal-v (topmost) subject
+                          # positives (rider-off-horse / boy-off-bike)
+
+select:                   # gate-referee provisionals (calibrate mode only;
+                          # production requires c_* lock keys)
+  area_hull_lo: 0.5       # C-SIZE band on mask_area / core-hull_area
+  area_hull_hi: 3.0
+  abs_area_max: 0.20      # C-ABS (approved 2026-08-21): absolute mask-area
+                          # ceiling — a subject is an object, not a scene;
+                          # corpus: healthy masks <= 0.097, whole-scene
+                          # failures 0.366 (bmx) / 0.645 (67.1.004) passed
+                          # the RELATIVE gates because the corrupted core
+                          # hull was equally huge
+  tau_iou_provisional: 0.15
+  tau_temp_provisional: 0.7
+
+reprompt:
+  max_events: 4           # §4: bounded, logged; never per-frame
+
+presence:
+  mode: honest_absent
+
+smoke:
+  clips: ["000000000035.1.003", "000000000265.2.003", "000000000284.0.006"]
+  frames_dir: /tmp/sam2_frames
