@@ -65,11 +65,13 @@ HEAD_SHA="$(git -C "$D4RT_DIR" rev-parse HEAD)"
 python - <<'PY'
 import os
 from huggingface_hub import snapshot_download
+# the HF repo nests every checkpoint under checkpoints/<subdir>/
+rel = "checkpoints/" + os.environ["D4RT_CKPT_SUB"]
 p = snapshot_download(repo_id=os.environ["D4RT_CKPT"], repo_type="model",
                       revision=os.environ["D4RT_CKPT_REV"],
-                      allow_patterns=[os.environ["D4RT_CKPT_SUB"] + "/*"],
+                      allow_patterns=[rel + "/*"],
                       local_dir=os.environ["CKPT_DIR"])
-sub = os.path.join(p, os.environ["D4RT_CKPT_SUB"])
+sub = os.path.join(p, rel)
 for f in ("opend4rt.ckpt", "model.yaml"):
     assert os.path.isfile(os.path.join(sub, f)), f"checkpoint incomplete: {sub}/{f} missing"
 print("checkpoint ->", sub)
