@@ -3,11 +3,11 @@
 # config.py refuses to run steps that need an unfilled field.
 
 repo:
-  github_url: "https://github.com/jnheinrich451-eng/mixture-motion-transfer.git"  # cloned at session start
+  github_url: "https://github.com/jnheinrich451-eng/ditflow.git"  # cloned at session start
   hf_dataset_id: "John00451/camera-motion-transfer"                   # private HF dataset with reference clips
 
 paths:
-  drive_root: /content/drive/MyDrive/motion_transfer
+  drive_root: /content/drive/MyDrive/ditflow_extract
   cache_dir:  ${paths.drive_root}/cache/stage_a     # per-clip frozen-contract bundles (§6)
   viz_dir:    ${paths.drive_root}/viz/stage_a
   secrets_gh: /content/drive/MyDrive/secrets/gh_token.env
@@ -28,6 +28,18 @@ d4rt:
   checkpoint: "Lijiaxin0111/OpenD4RT"               # HF model id (org/name) or absolute path
   dtype: float32                                    # probe ran fp32: 4.8 GB VRAM on L4, no need to quantize
   latent_cache_policy: reencode                     # resolved by probe P7 (encode 1.0s, F=0.044 GB)
+  # PINS — HUMAN DECISION, fill from `python scripts/find_pins.py` on Colab.
+  # Stage A refuses to run while any is '<...>'. commit = the Open-d4rt commit
+  # recorded as model_commit in the validated bundles' provenance.json.
+  commit: "<fill: Open-d4rt commit (find_pins.py)>"
+  checkpoint_revision: "<fill: HF commit of Lijiaxin0111/OpenD4RT (find_pins.py)>"
+  checkpoint_subdir: OpenD4RT_48CLIP_9Mix_NoCropAUG # the validated checkpoint (contract §3);
+                                                    # only this folder is downloaded
+
+sam2:                                               # hashed (config.py) -> a pin change re-runs A too:
+                                                    # deliberate, the instrument is one unit
+  git_commit: "<fill: facebookresearch/sam2 commit (find_pins.py)>"
+  weights_revision: "<fill: HF commit of facebook/sam2.1-hiera-base-plus (find_pins.py)>"
 
 # ViPE (Stage A.5 bake-off) lives in configs/stage_a5.yaml per its SKILL §1.
 
