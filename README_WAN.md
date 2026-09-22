@@ -1,6 +1,81 @@
 # DiTFlow for Wan2.1 T2V
 
-The notebook section **Next generation test: early versus later AMF guidance**
+## Active workflow: T2V 14B port
+
+Start with [CURRENT_PLAN.md](CURRENT_PLAN.md) for the goal, evidence, open questions,
+and next decision; [AGENTS.md](AGENTS.md) defines the working rules. Current scope is
+the DiTFlow port to **Wan2.1 T2V 14B**. I2V is a possible later extension.
+
+The active implementation is [motion_guidance_wan.py](motion_guidance_wan.py), loading
+[configs/guidance_config_wan.yaml](configs/guidance_config_wan.yaml). Specify
+`--model 14b`: the unchanged CLI default selects 1.3B. The existing configuration
+enables K/V injection; `--no_injection` disables it, and a native-backbone comparison
+requires both `--no_guidance --no_injection`. See the plan for the exact defaults.
+
+The port has saved compatibility evidence, but decoded motion-transfer acceptance
+remains unmet. Lower internal loss does not establish success. The next scientific
+decision is **unresolved**; no experiment or different method is selected here.
+Read the relevant saved evidence before changing the implementation. Reuse applicable
+checks; resolving every historical diagnostic discrepancy is not a prerequisite.
+
+All prior notebook workflows, `docs/WAN_*.md` protocols, report recommendations,
+and their "next run" or publish instructions are historical, not active requirements.
+This includes `notebook.ipynb`, `decisive.ipynb`, `wan_port_acceptance.ipynb`, and the
+centered-AMF notebooks. Their implementation, outputs, tests, and paths are retained.
+The following technical reference documents existing behavior; its examples are not
+a queued experiment or an instruction to change the environment during this cleanup.
+
+<details>
+<summary>Historical experiment workflow instructions (superseded as next steps)</summary>
+
+The original instructions below are retained for provenance. None selects the next run.
+
+**Next run: [decisive.ipynb](decisive.ipynb).** One clip, seven generations, and a stop rule fixed
+before the run: does AMF guidance at full DiTFlow strength steer decoded motion at all? It is scored
+only on decoded video. If it fails on camel, AMF guidance on Wan stops. See
+[the decisive protocol](docs/WAN_DECISIVE_TEST.md). The subject-only section in `notebook.ipynb`
+is on hold until that verdict.
+
+Use the lightweight [notebook.ipynb](notebook.ipynb) for the current remote GPU run.
+The setup cell is the second code cell, under **2. Experiment setup**. After syncing
+the checkout and restarting the kernel, follow runtime preparation -> setup ->
+generate/resume -> view results -> archive. Historical experiments and their saved
+outputs are preserved in [tests.ipynb](tests.ipynb); they do not need to run first.
+
+After `wan_subject_14b_20260914T222436877557Z`, run **Wan 14B: subject-only guidance**
+in the main notebook. It generates two new forward/reverse videos with background
+loss weight zero, reusing the exact frozen mapping and completed balanced controls.
+Head, LR, timestep, prompt and update budget stay fixed; background diagnostics
+remain recorded. See [the subject-only protocol](docs/WAN_SUBJECT_ONLY.md).
+
+The preceding four-generation **subject alignment and loss balance** workflow
+and its saved outputs are archived in `tests.ipynb`. See
+[its protocol](docs/WAN_SUBJECT_ALIGNMENT.md).
+
+After `wan_noised_reference_14b_20260913T213928341143Z`, the preceding
+**Wan 14B: AMF control and retention** experiment generates matched off/forward/reversed
+controls with forward-adjacent guidance, actual sampler captures and native-head
+measurements. Its completed workflow is archived in `tests.ipynb`.
+See [the control protocol](docs/WAN_CONTROL_EXPERIMENT.md).
+It includes the preceding [pair-selection intervention](docs/WAN_PAIR_COMPARISON.md);
+that smaller one-generation section does not need to run first.
+
+The earlier test after the crossover is the archived section **Wan 14B: noised
+reference and real generation**. It confirms fixed block 30/head 30 on camel/seed 29,
+then generates playable vanilla / baseline-readout / noised-reference-candidate
+videos with a matched step-9 intervention. Its cells are in `tests.ipynb`.
+See [the fixed protocol](docs/WAN_NOISED_REFERENCE_PILOT.md).
+The candidate is experimental; the original full clean-reference screen still failed.
+
+The earlier 14B diagnostic is **Wan 14B: individual heads, then visual validation**
+in `tests.ipynb`. It screens heads in blocks 20/30 at fixed
+sharpening 2, confirms one frozen candidate on another texture/noise seed, then
+permits a matched AMF-off / historical baseline / candidate generation pilot.
+See [the fixed protocol](docs/WAN_HEAD_DIAGNOSTIC.md). The new `--flow_head`
+option changes only the experimental AMF readout; its default preserves mean logits.
+Local checks do not establish pretrained generation quality.
+
+The archived `tests.ipynb` section **Next generation test: early versus later AMF guidance**
 runs four paired generations: car-turn/camel, each with sampling indices 0–9 or
 20–29. It uses uniform AMF at block 10, cap 100, seed 1, no KV injection, and five
 Adam updates per active step. Both arms share the same ten-step LR sequence and
@@ -16,7 +91,7 @@ optimizer counts, LR values, guided sigmas and paired reference images, saving
 `timing_audit.json`. AMF probes cover both windows; intermediate decoded video
 estimates are not collected. Baseline defaults and generation code are unchanged.
 
-The notebook section **Next diagnostic: rotation, expansion and attention heads**
+The archived `tests.ipynb` section **Next diagnostic: rotation, expansion and attention heads**
 tests AMF extraction without generating target videos. It reuses the
 `wan_reference_inputs` bundle for car-turn and camel and compares all individual
 heads with averaged logits at block 10 on known image-plane transforms.
@@ -46,6 +121,10 @@ on identical pure-noise inputs as recovered motion or select a production head
 from these two diagnostic clips alone. Passing 2D transforms does not establish
 correct 3D turns, gait or motion transfer.
 
+</details>
+
+## Port implementation reference
+
 A port of DiTFlow to Wan2.1. **Nothing in the original CogVideoX implementation is
 modified** — `motion_guidance.py`, `guidance_utils/custom_*.py` and
 `configs/guidance_config.yaml` are untouched, so the paper baseline stays runnable
@@ -58,6 +137,22 @@ side by side for comparison.
 | `guidance_utils/wan_modules.py` | QK capture, KV injection, feature hook | `custom_modules.py` |
 | `guidance_utils/wan_motion_flow_utils.py` | AMF | `motion_flow_utils.py` |
 | `configs/guidance_config_wan.yaml` | Guidance params | `configs/guidance_config.yaml` |
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `motion_guidance.py`, `motion_guidance_wan.py` | The two generation entry points (CogVideoX baseline, Wan port). Every notebook, benchmark grid and archived `plan.json` calls them by these paths, so they stay at the root. |
+| `guidance_utils/` | Importable library: transformers, attention processors, AMF, probes and diagnostics for both backbones. |
+| `configs/` | Guidance parameters per backbone. |
+| `probe_wan_affine.py`, `probe_cog_affine.py`, `probe_wan_rope.py` | Known-motion readout suites; run from the root. |
+| `probe_report.py`, `probe_temporal_report.py`, `sweep_wan.py`, `colab_utils.py` | Reports, sweeps and notebook helpers, imported by the notebooks by these names. |
+| `benchmark/` | Benchmark harness, manifests, analysis and table generation. |
+| `eval/` | The paper's MF and CLIP metrics, unchanged. |
+| `tests/` | Preserved `verify_*.py` checks. Select checks relevant to an implementation change; the whole diagnostic collection is not an active prerequisite. |
+| `docs/` | Working notes: probe guides, benchmark design, decisions and results. |
+| `assets/` | Reference clips and teaser media. |
+| `probe_runs/`, `probe_comparison/`, `results*/`, `sweeps/` | Generated outputs and offline reviews; git-ignored. |
 
 ## Environment
 
@@ -87,19 +182,19 @@ Then rerun the failed generation cell: it launches a fresh Python process and
 keeps the existing experiment plan. If using model libraries directly in the
 notebook process, restart the kernel after changing installed packages.
 
-## Verify first
+## Port compatibility check (when relevant)
 
 ```bash
-python verify_wan_port.py
+python tests/verify_wan_port.py
 ```
 
 Weight-free, CPU, seconds. Checks the port's AMF against **this repo's own**
 `guidance_utils/motion_flow_utils.py` (the published DiTFlow implementation) at
 f64, plus the transformer chain: rotary equivalence, Q/K capture, gradient flow
-to latent and RoPE, gradient-checkpointing invariance, and KV injection. Run it
-before trusting a sweep; if it fails, nothing downstream is trustworthy.
+to latent and RoPE, gradient-checkpointing invariance, and KV injection. Use it for
+relevant implementation changes; a pass does not establish decoded motion transfer.
 
-## Run
+## CLI examples (explicit 14B; not a scheduled run)
 
 The bundled `assets/*.mp4` are **24 frames at 720x480**, so `num_frames` must be
 a 4k+1 value <= 24. The config defaults to 21 (-> 6 latent frames, the same
@@ -108,22 +203,22 @@ ceiling: 33 -> 9 latent frames, 81 -> 21.
 
 ```bash
 # DiTFlow (-z_t): optimise the latent  -- the paper's headline setting
-python motion_guidance_wan.py \
+python motion_guidance_wan.py --model 14b \
     --video_path ./assets/bmx-trees.mp4 \
     --prompt "Leopard running up a snowy hill in a forest"
 
 # DiTFlow (-rho_t): optimise RoPE, reusable for zero-shot injection
-python motion_guidance_wan.py -v ./assets/bmx-trees.mp4 -p "..." --opt_mode emb
+python motion_guidance_wan.py --model 14b -v ./assets/bmx-trees.mp4 -p "..." --opt_mode emb
 
 # Zero-shot injection with a new prompt (after an --opt_mode emb run)
-python motion_guidance_wan.py -v ./assets/bmx-trees.mp4 \
+python motion_guidance_wan.py --model 14b -v ./assets/bmx-trees.mp4 \
     -p "Polar bear walking up a snowy hill in a forest" --opt_mode emb --inject_embeds
 
 # Baselines
-python motion_guidance_wan.py -v ... -p ... --loss_type smm      # SMM
-python motion_guidance_wan.py -v ... -p ... --loss_type moft     # MOFT
-python motion_guidance_wan.py -v ... -p ... --no_guidance                 # injection only
-python motion_guidance_wan.py -v ... -p ... --no_guidance --no_injection  # backbone
+python motion_guidance_wan.py --model 14b -v ... -p ... --loss_type smm      # SMM
+python motion_guidance_wan.py --model 14b -v ... -p ... --loss_type moft     # MOFT
+python motion_guidance_wan.py --model 14b -v ... -p ... --no_guidance                 # injection only
+python motion_guidance_wan.py --model 14b -v ... -p ... --no_guidance --no_injection  # backbone
 ```
 
 Evaluate exactly as DiTFlow does — `eval/motion_fidelity_score.py` and
@@ -133,16 +228,15 @@ Evaluate exactly as DiTFlow does — `eval/motion_fidelity_score.py` and
 
 * **Rectified flow.** UniPC (default) or FlowMatchEuler replaces DDIM/DPM.
   `scale_model_input` is a no-op and drops out; `add_noise` interpolates
-  `(1-s)·x₀ + s·ε`. If `--opt_mode latent` drifts, try `--scheduler flowmatch`:
-  it is first-order, so editing the latent between steps cannot corrupt
-  multistep solver history the way it can with UniPC.
+  `(1-s)·x₀ + s·ε`. FlowMatch is a first-order alternative; scheduler choice is
+  part of each saved configuration, not an automatic remedy for guidance drift.
 * **VAE.** Per-channel `latents_mean`/`latents_std`, not a single
   `scaling_factor`. Latents are `(B, C, F, H, W)` — no permute. The VAE is kept
   in fp32 (bf16 produces artifacts).
 * **No absolute position embedding.** `--opt_mode emb` optimises RoPE. There is
   no `posemb` mode.
 * **No text in self-attention.** AMF needs no text-prefix slice.
-* **`num_frames` must be 4k+1** (Wan's causal VAE). Default 33 → 9 latent frames.
+* **`num_frames` must be 4k+1** (Wan's causal VAE). Default 21 → 6 latent frames.
 
 ### AMF is reformulated, not reimplemented
 
@@ -160,7 +254,7 @@ head axis away. Head fusion removes the `H` factor outright. `checkpoint_amf`
 blocks in backward, trading ~30% compute for O(S) instead of O(S²) retained
 activations.
 
-## Sweeping
+## Historical sweep interface (not the active workflow)
 
 `sweep_wan.py` runs a grid and scores every output with the paper's own metrics
 (`eval/motion_fidelity_score.py` for MF, `eval/clip_score.py` for CLIP):
@@ -191,10 +285,11 @@ MF requires the `cotracker` package (pulled via `torch.hub`) and CLIP requires
 `clip`; a missing one is recorded as `n/a` and the sweep continues rather than
 discarding the generations. `--skip_mf` / `--skip_clip` opt out explicitly.
 
-## Tuning
+## Historical tuning suggestions (not active requirements)
 
 The defaults are **starting points transplanted from CogVideoX, not ported
-optima.** Expect to sweep, in roughly this order of leverage:
+optima.** The original proposed tuning order is retained below; no sweep is selected
+by the current plan:
 
 1. `motion_temp` — Wan applies RMSNorm to q/k (`qk_norm=rms_norm_across_heads`),
    so raw attention logits are on a different scale than CogVideoX's. This
@@ -210,7 +305,8 @@ optima.** Expect to sweep, in roughly this order of leverage:
 ## Hardware
 
 * **Wan2.1-T2V-1.3B** fits comfortably; also the practical choice under 24 GB
-  (add `--low_vram` for model CPU offload).
+  (add `--low_vram` for model CPU offload). This historical option is outside the
+  current 14B scope; limited hardware does not select a different target.
 * **Wan2.1-T2V-14B** needs an A100/H100 for guidance — backprop runs through
   blocks 0…20 of a 14B model.
 
