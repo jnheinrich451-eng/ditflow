@@ -12,12 +12,23 @@ VARIANTS = {"tiny": "facebook/sam2.1-hiera-tiny",
 
 
 class Sam2Runner:
-    def __init__(self, size):
+    def __init__(self, size, revision=None):
+        """revision: pinned HF commit of the weights repo (ditflow extract-v1).
+        Same config + checkpoint file as SAM2VideoPredictor.from_pretrained
+        (which takes no revision), fetched at that commit."""
         import torch
-        from sam2.sam2_video_predictor import SAM2VideoPredictor
         self.torch = torch
-        self.predictor = SAM2VideoPredictor.from_pretrained(VARIANTS[size])
+        if revision is None:
+            from sam2.sam2_video_predictor import SAM2VideoPredictor
+            self.predictor = SAM2VideoPredictor.from_pretrained(VARIANTS[size])
+        else:
+            from huggingface_hub import hf_hub_download
+            from sam2.build_sam import HF_MODEL_ID_TO_FILENAMES, build_sam2_video_predictor
+            cfg_name, ckpt_name = HF_MODEL_ID_TO_FILENAMES[VARIANTS[size]]
+            ckpt = hf_hub_download(VARIANTS[size], ckpt_name, revision=revision)
+            self.predictor = build_sam2_video_predictor(cfg_name, ckpt)
         self.size = size
+        self.revision = revision
 
     def run(self, frames_dir, n_fr, t_c, pts_native, labels, box_native):
         """seed + bidirectional propagation -> {t: bool mask (native res)}.

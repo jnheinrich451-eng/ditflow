@@ -20,7 +20,9 @@ _INTERP = re.compile(r"\$\{([A-Za-z0-9_.]+)\}")
 _PLACEHOLDER = re.compile(r"^<.*>$")
 
 # Sections whose change must invalidate cached bundles.
-_HASHED_SECTIONS = ("d4rt", "video", "thresholds")
+# ditflow: "sam2" added so the SAM2 pins (stage_a.yaml) enter the content
+# address — a model-version change must invalidate caches (extract-v1).
+_HASHED_SECTIONS = ("d4rt", "sam2", "video", "thresholds")
 
 # Content-addressing scope: ONLY the thresholds that shape Stage A bundle
 # content enter Stage A's hash. Stage B gate values live in the same lock but

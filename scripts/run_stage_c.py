@@ -54,7 +54,11 @@ def main():
     Hp = int(cfg["video"]["process_height"])
     viz = Path(cfg["paths"]["stage_c_viz"])
     viz.mkdir(parents=True, exist_ok=True)
-    runner = maskmod.Sam2Runner(cfg_c["sam2"]["variant"])
+    if unfilled := [f for f in cfg["_meta"]["unfilled"] if f.startswith("sam2")]:
+        raise SystemExit(f"SAM2 pins unfilled in {args.config}: {unfilled} "
+                         "(fill from scripts/find_pins.py)")
+    runner = maskmod.Sam2Runner(cfg_c["sam2"]["variant"],
+                                revision=cfg["sam2"]["weights_revision"])
 
     md = [f"# Stage C {'calibration' if args.calibrate else 'production'} "
           f"table\n", f"Config hash `{cfg['_meta']['config_hash']}`; "

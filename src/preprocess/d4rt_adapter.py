@@ -90,10 +90,13 @@ class D4RTAdapter:
         m = _import_d4rt(cfg["paths"]["d4rt_dir"])
 
         ckpt_root = Path(cfg["paths"]["ckpt_dir"])
-        cands = sorted(ckpt_root.rglob("opend4rt.ckpt"))
-        if not cands:
-            raise FileNotFoundError(f"no opend4rt.ckpt under {ckpt_root} — run bootstrap first")
-        ckpt = next((p for p in cands if "48" in p.parent.name), cands[0])
+        sub = cfg["d4rt"]["checkpoint_subdir"]     # pinned name, never a name heuristic
+        cands = sorted(p for p in ckpt_root.rglob("opend4rt.ckpt") if p.parent.name == sub)
+        if len(cands) != 1:
+            raise FileNotFoundError(
+                f"expected exactly one {sub}/opend4rt.ckpt under {ckpt_root}, found "
+                f"{[str(p) for p in cands]} — run scripts/bootstrap_extract.sh")
+        ckpt = cands[0]
         model_cfg = m["load_yaml_config"](str(ckpt.parent / "model.yaml"))
         model = m["build_model"](model_cfg["model"]).eval()
         state = m["unwrap"](m["load_checkpoint"](ckpt, map_location="cpu"))
