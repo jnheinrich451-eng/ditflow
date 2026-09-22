@@ -18,10 +18,27 @@ and next decision. Update it when the task or evidence changes.
 - Lower internal loss, gradient changes, and pixel differences do not establish
   motion-transfer success. Acceptance requires intended reference-dependent decoded
   subject motion with useful quality under matched conditions, then independent confirmation.
-- Preserve implementation files, tests, diagnostic scripts, notebooks, raw evidence,
-  and their paths, including untracked work. Do not clean by deleting research history.
-- Before authorized GPU work, record the question, smallest comparison, budget,
-  stopping condition, and resulting decision in the plan. Do not invent a new
-  experiment when the evidence leaves the decision unresolved.
+- Preserve evidence and reproducibility, including ignored and untracked work.
+  Deliberate relocation is allowed when imports, notebook calls, and links are updated
+  and saved-run provenance remains traceable. Do not delete files by filename prefix
+  or treat historical status as evidence that a file is disposable.
+- When evidence leaves a research decision unresolved, propose a bounded experiment
+  that distinguishes explicit hypotheses and explain which decision it will resolve.
+  Record the comparison, compute budget, stopping condition, and outcome-dependent
+  next decisions in the plan before GPU work; execute within the authorized scope
+  and budget. Record the result, then decide. Uncertainty is acceptable; automatic
+  chains of tests are not. A documentation-only task does not authorize experiments.
 - Distinguish inspected artifacts, historical reports, and untested proposals.
   Report pipeline, configuration, source identity, evidence limits, and what remains open.
+
+## Suggested utility on files
+
+| Files                                                                                  | What to do                                                                                               |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `motion_guidance_wan.py`, Wan transformer/attention/AMF modules, configuration         | Keep as active implementation.                                                                           |
+| `guidance_utils/motion_probe.py`, `wan_guidance_schedule.py`, `wan_region_guidance.py` | Keep: the generation entrypoint directly imports these. A “probe” name does not mean disposable.         |
+| Root `probe_wan_*.py`, `probe_cog_affine.py`, report scripts, experimental notebooks   | Historical or optional tools. Candidates for later relocation after checking callers and notebook paths. |
+| `benchmark/review_wan_*.py`, `inspect_wan_*.py`, individual experiment runners         | Preserve for reproducing investigations; exclude from the routine reading and execution workflow.        |
+| Benchmark dataset manifests, collection and scoring utilities                          | Keep for evaluation. Their purpose differs from the one-off diagnostic scripts.                          |
+| Old `docs/WAN_*.md` protocols and superseded plans                                     | Archive or clearly label historical; retain a short evidence index.                                      |
+| Saved videos, captures, manifests and reports                                          | Preserve verified backups. Git history does not protect ignored or untracked outputs.                    |

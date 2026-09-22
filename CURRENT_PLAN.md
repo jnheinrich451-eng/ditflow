@@ -64,10 +64,13 @@ sharpening, regional support, Huber, and destination NLL are historical experime
 variants, not adopted replacements for the DiTFlow port.
 
 **Next decision: unresolved.** Available evidence does not select a specific port
-repair or the next bounded motion-transfer comparison. Continue from the entry point
-and configuration above when substantive port work resumes; do not automatically run
-the old decisive, subject-only, prefix-localization, or timing proposals. No new
-experiment or scientific method is selected by this cleanup.
+repair or the next bounded motion-transfer comparison. When substantive port work
+resumes, use the entry point and configuration above and propose a bounded comparison
+that distinguishes explicit hypotheses, states the decision it will resolve, and
+sets a budget and stopping condition. Execute within the authorized scope and budget;
+uncertainty alone is not a reason to stall. Historical proposals are not an automatic
+test queue. No experiment or different scientific method is selected or authorized
+by this documentation cleanup.
 
 Remaining contradictions are preserved with context: the old [I2V target](docs/WAN_RESEARCH_TARGET.md)
 is superseded by current T2V scope; the [acceptance audit](docs/WAN_PORT_ACCEPTANCE.md)
