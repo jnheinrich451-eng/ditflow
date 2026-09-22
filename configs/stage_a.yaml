@@ -31,15 +31,28 @@ d4rt:
   # PINS — HUMAN DECISION, fill from `python scripts/find_pins.py` on Colab.
   # Stage A refuses to run while any is '<...>'. commit = the Open-d4rt commit
   # recorded as model_commit in the validated bundles' provenance.json.
-  commit: "<fill: Open-d4rt commit (find_pins.py)>"
-  checkpoint_revision: "<fill: HF commit of Lijiaxin0111/OpenD4RT (find_pins.py)>"
+  # Filled 2026-09-22 from find_pins.py (126 validated bundles read):
+  #   403290a in 121 bundles, bead824 in 5. bead824 is an ancestor; the diff
+  #   (855894b, native aspect ratio) touches only infer_track_3d._infer_tracks
+  #   and eval_track3d_in_worldtrack.py, neither called by d4rt_adapter.py
+  #   (it imports _resize_video/_unwrap_state_dict + src.*, all unchanged), so
+  #   both commits run identical code on this path. Majority commit chosen.
+  commit: "403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3"
+  # 7099b1f is the only OpenD4RT revision containing checkpoint_subdir
+  # (added 2026-05-18, no later commits): determined, not just date-inferred.
+  checkpoint_revision: "7099b1fc760475de3b7409acd6b63f801b015d07"
   checkpoint_subdir: OpenD4RT_48CLIP_9Mix_NoCropAUG # the validated checkpoint (contract §3);
                                                     # only this folder is downloaded
 
 sam2:                                               # hashed (config.py) -> a pin change re-runs A too:
                                                     # deliberate, the instrument is one unit
-  git_commit: "<fill: facebookresearch/sam2 commit (find_pins.py)>"
-  weights_revision: "<fill: HF commit of facebook/sam2.1-hiera-base-plus (find_pins.py)>"
+  # INFERRED: sam2 default-branch HEAD on the Stage C sign-off date
+  # (2026-08-22); the validated install was an unpinned git HEAD. Confirm by
+  # re-extracting a calibration clip and matching the Stage C qc statistics.
+  git_commit: "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+  # main on 2026-08-22. sam2.1_hiera_base_plus.pt is byte-identical in both
+  # repo revisions (sha256 a2345aed..., 323606802 B), so this pin is exact.
+  weights_revision: "b7320756a13354e7530a63935656d35b2f91a290"
 
 # ViPE (Stage A.5 bake-off) lives in configs/stage_a5.yaml per its SKILL §1.
 

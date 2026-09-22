@@ -1,0 +1,21 @@
+# extract-v1 instrument environment (Module 1: Open-d4rt + SAM2). Separate from
+# requirements.txt (CogVideoX / Wan): numpy, pillow and huggingface-hub pins
+# conflict, so extraction runs in its OWN Colab runtime, bootstrapped with
+#   bash scripts/bootstrap_extract.sh
+# torch / torchvision are NOT pinned: Colab's preinstalled build is used and
+# recorded in provenance (env summary). Open-d4rt's own requirements and SAM2
+# (git, pinned commit) are installed by the bootstrap from configs/stage_a.yaml.
+#
+# Pins copied verbatim from mixture-motion-transfer/requirements.txt, the
+# environment Stage A-C.5 were validated in. numpy matches Open-d4rt's pin.
+numpy==2.2.5
+pyyaml==6.0.2
+python-dotenv==1.0.1
+huggingface_hub==0.36.2
+opencv-python-headless==4.10.0.84
+matplotlib==3.9.2
+imageio==2.36.0
+imageio-ffmpeg==0.5.1
+einops==0.8.0
+tqdm==4.66.5
+scipy>=1.10
