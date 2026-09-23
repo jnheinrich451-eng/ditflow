@@ -4,7 +4,8 @@
 
 Start with [CURRENT_PLAN.md](CURRENT_PLAN.md) for the goal, evidence, open questions,
 and next decision; [AGENTS.md](AGENTS.md) defines the working rules. Current scope is
-the DiTFlow port to **Wan2.1 T2V 14B**. I2V is a possible later extension.
+the DiTFlow port to **Wan2.1 T2V 14B**, an intermediate platform toward the user's
+final I2V 14B target. This workflow does not validate I2V.
 
 The active implementation is [motion_guidance_wan.py](motion_guidance_wan.py), loading
 [configs/guidance_config_wan.yaml](configs/guidance_config_wan.yaml). Specify
@@ -13,12 +14,17 @@ enables K/V injection; `--no_injection` disables it, and a native-backbone compa
 requires both `--no_guidance --no_injection`. See the plan for the exact defaults.
 
 The port has saved compatibility evidence, but decoded motion-transfer acceptance
-remains unmet. Lower internal loss does not establish success. The next scientific
-decision is **unresolved**; no experiment or different method is selected here.
+remains unmet. Lower internal loss does not establish success. The current plan
+names a prepared fourfold-LR original-AMF comparison; GPU execution remains pending.
+Start it with [wan_lr4_colab.ipynb](wan_lr4_colab.ipynb) through the VS Code Colab
+extension: Git clone/pull, 80 GB A100/H100, and direct Drive results/logs/review ZIP.
+See [setup, baseline reuse, and paired commands](docs/WAN_LR4_CANDIDATE.md).
+The notebook defaults to preparation only and uses the saved runtime pins rather
+than the general installation example below.
 Read the relevant saved evidence before changing the implementation. Reuse applicable
 checks; resolving every historical diagnostic discrepancy is not a prerequisite.
 
-All prior notebook workflows, `docs/WAN_*.md` protocols, report recommendations,
+Prior notebook workflows, protocols labelled historical, report recommendations,
 and their "next run" or publish instructions are historical, not active requirements.
 This includes `notebook.ipynb`, `decisive.ipynb`, `wan_port_acceptance.ipynb`, and the
 centered-AMF notebooks. Their implementation, outputs, and tests are retained.

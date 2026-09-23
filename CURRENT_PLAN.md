@@ -8,12 +8,12 @@ are superseded as task assignments, while their evidence and procedures remain i
 Faithfully port CogVideoX DiTFlow to **Wan2.1 T2V 14B** for testing and as the user's
 model base. Retain native Wan behavior and the original DiTFlow comparison.
 Motion-transfer acceptance requires reference changes to produce intended decoded
-subject-motion changes with useful quality. I2V is optional future work, not the
-current target. Current task: evaluate the proposed port next step using saved
-early-window acceptance outputs before implementation. Budget: **zero GPU runs**;
-reuse motion measurements and fill only missing decoded-motion evidence on CPU.
-Stop after deciding whether that comparison completed and met the motion criterion.
-Review checkout HEAD: `aec1915`, with pre-existing modified/untracked work.
+subject-motion changes with useful quality. Per the latest supplied instructions,
+the final target is **I2V 14B**; this task remains on the intermediate **T2V 14B**
+platform and does not establish I2V support. Current task: prepare one fourfold-LR original-AMF comparison,
+following the completed saved-output review. Budget now: **zero GPU runs**; only
+configuration/command preparation and CPU checks. Stop when the paired experiment
+is ready for review. Preparation HEAD: `84c8bae`, with pre-existing modified/untracked work.
 
 ## Active implementation and configuration
 
@@ -31,7 +31,7 @@ Review checkout HEAD: `aec1915`, with pre-existing modified/untracked work.
   [attention](guidance_utils/wan_modules.py), [AMF](guidance_utils/wan_motion_flow_utils.py).
   Original baseline: [motion_guidance.py](motion_guidance.py) and
   [CogVideoX config](configs/guidance_config.yaml). Experimental notebooks/runners
-  remain available; none is designated the next run.
+  remain available; the prepared candidate below is the only named next comparison.
 
 ## Established evidence and limits
 
@@ -70,7 +70,7 @@ inference was run. Generated evidence is local/git-ignored and must be retained.
   were not revised. Two original pilot trace NPZs are absent locally. No decoded
   torso-NLL acceptance comparison is established by these diagnostics.
 
-## Unresolved hypotheses and next decision
+## Named candidate and next decision
 
 Whether correspondence quality, intervention timing/strength, head/block choice, or
 the earlier transformer path limits reference response remains unresolved. Centering,
@@ -81,16 +81,36 @@ variants, not adopted replacements for the DiTFlow port.
 for the intended direction test; no missing arm or basic propagation/parity rerun is
 needed. This result is distinct from the late centered-AMF failure.
 
-**Next implementation choice remains unresolved.** Failure alone does not distinguish
-a port defect from target/readout, placement, or strength limitations. Evaluate a
-specific hypothesis using existing captures before selecting a bounded change; do
-not automatically adopt Huber, destination NLL, another layer/schedule, or the historical
-decisive suite. This review selects no replacement method and implements no inference
-change. Any later experiment must state its decision, budget, and stopping condition
-and remain within authorized scope; uncertainty does not require a chain of diagnostics.
+**Prepared candidate: original AMF with fourfold latent LR**, `.008 -> .004` instead
+of `.002 -> .001`. Hypothesis: a weak useful response exists but update size is
+insufficient. The -86/-122 px ordering around the -102 px off baseline is compatible
+with this hypothesis, not proof. References combine subject and camera motion;
+AMF represents image-grid displacement, not fence-relative subject motion.
 
-Remaining contradictions are preserved with context: the old [I2V target](docs/WAN_RESEARCH_TARGET.md)
-is superseded by current T2V scope; the [acceptance audit](docs/WAN_PORT_ACCEPTANCE.md)
+[Profile](configs/wan_lr4_camel_s1.json), [paired commands and reuse requirements](docs/WAN_LR4_CANDIDATE.md),
+[launcher](scripts/run_wan_lr4.py), [VS Code Colab notebook](wan_lr4_colab.ipynb).
+The notebook clones/pulls `docs/wan-active-instructions` and writes directly to
+`MyDrive/ditflow_results/wan_lr4_camel_s1`, with logs and a downloadable review ZIP.
+Use an 80 GB A100/H100, retaining CPU offload and the saved runtime pins. Hardware
+differs from the saved A100 40 GB baseline; small cross-hardware differences cannot
+be assigned solely to LR. Both new arms must use matching hardware/runtime. Keep checkpoint/input/noise/conditioning, original
+MSE/masks, block 20/mean heads, indices 0-9, five updates, UniPC, and no injection fixed.
+The local 21-record search found no equivalent stronger run; remote-only evidence is
+unverified. No production defaults or guidance method changed. Preparation checks
+pass; pretrained execution and baseline setup compatibility remain untested.
+
+**Proposed cap, not executed:** two new guided generations (forward/reverse), 50
+sampling steps and 50 Adam updates each; reuse existing off and ordinary-LR outputs.
+Measure subject screen, fence, and relative motion separately; assess quality over
+all frames, including opening corruption. Opposite-direction motion with acceptable
+quality advances to independent confirmation. Larger credible separation with both
+still left is partial response, not acceptance. No improvement/degradation rejects
+the candidate; uncertainty is reported. Stop without automatic strength escalation,
+parity/propagation reruns, or the decisive suite. GPU execution is not authorized yet.
+
+Remaining contradictions are preserved with context: the [I2V target](docs/WAN_RESEARCH_TARGET.md)
+is the final goal per the latest supplied instructions, while this comparison and
+older repository scope wording concern T2V; the [acceptance audit](docs/WAN_PORT_ACCEPTANCE.md)
 mixes an early "not run" status with later completed results; older reports name
 different next runs. CLI 1.3b and injection defaults remain unchanged and need explicit
 interpretation. Historical environment/scheduler variants are not interchangeable.
