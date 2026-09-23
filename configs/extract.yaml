@@ -12,10 +12,17 @@ extract:
 # frozen yet: the check is skipped and "unfrozen" is written to provenance.
 # Once set, a video that does not match is REFUSED (the extractor never
 # resamples; normalise upstream, K/provenance rule CLAUDE.md §3.6).
+# FROZEN 2026-09-23 (Q1 protocol §8.6): the shape CogVideoX-5B generates, so
+# generated videos need no change; references are CENTER-CROPPED to 3:2 by
+# benchmark/canonicalize.py (never squashed -- squashing changes the intrinsics
+# the camera metrics depend on); Kubric renders at 720x480 directly.
+# fps is per cut (meta.json effective_fps: DAVIS 12, MiraData 15, Kubric 12).
+# Note: B2a (2026-09-22) ran on 81x720x1280 with this block unfrozen; those
+# three extractions are the transfer check, not benchmark inputs.
 canonical:
-  frames: null
-  height: null
-  width: null
+  frames: 24
+  height: 480
+  width: 720
 
 derived:
   bg_depth_percentiles: [5, 95]    # Z_near / Z_far for delta_parallax (plan S3)
