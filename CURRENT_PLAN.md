@@ -9,9 +9,11 @@ Faithfully port CogVideoX DiTFlow to **Wan2.1 T2V 14B** for testing and as the u
 model base. Retain native Wan behavior and the original DiTFlow comparison.
 Motion-transfer acceptance requires reference changes to produce intended decoded
 subject-motion changes with useful quality. I2V is optional future work, not the
-current target. This task is documentation only: **zero GPU runs, no inference or
-method changes**. Starting HEAD: `4a2edc7`, with pre-existing modified/untracked work;
-that commit alone does not identify the full experimental checkout.
+current target. Current task: evaluate the proposed port next step using saved
+early-window acceptance outputs before implementation. Budget: **zero GPU runs**;
+reuse motion measurements and fill only missing decoded-motion evidence on CPU.
+Stop after deciding whether that comparison completed and met the motion criterion.
+Review checkout HEAD: `aec1915`, with pre-existing modified/untracked work.
 
 ## Active implementation and configuration
 
@@ -33,8 +35,9 @@ that commit alone does not identify the full experimental checkout.
 
 ## Established evidence and limits
 
-Sources below were read during cleanup; no inference, video re-evaluation, or metric
-recomputation was performed. Generated evidence is local/git-ignored and must be retained.
+The early-window result below was reviewed from decoded frames and independent motion
+measurements on 2026-09-22; other entries summarize inspected saved reports. No model
+inference was run. Generated evidence is local/git-ignored and must be retained.
 
 - **Native/off parity:** the saved 14B [parity record](probe_runs/wan_port_acceptance_camel_s1_v2_retry/parity.json)
   reports zero maximum difference at all 50 steps. Its [manifest](probe_runs/wan_port_acceptance_camel_s1_v2_retry/manifest.json)
@@ -42,7 +45,18 @@ recomputation was performed. Generated evidence is local/git-ignored and must be
   [configuration](probe_runs/wan_port_acceptance_camel_s1_v2_retry/configuration.yaml)
   identifies the tested setup. This is bounded Diffusers-path evidence, not universal
   parity across versions or official Wan backends; see the [audit](docs/WAN_PORT_ACCEPTANCE.md).
-- **Decoded failure despite propagation:** the [completed centered-AMF review](probe_runs/wan_centered_pilot_camel_s1/review/REVIEW.md)
+- **Early original-AMF comparison completed and failed:** the [saved-output review](probe_comparison/port_acceptance_20260922_early_review/REVIEW.md)
+  verifies off/forward/reverse videos, both 50-step completion logs, and the original
+  AMF/MSE configuration (indices 0-9, five updates each, block 20, no injection).
+  Across clean RGB frames 5-20, fence-relative hump displacements are approximately
+  **-102/-86/-122 px**, versus **+127/-135 px** in the references. Both guided animals
+  still travel left. Existing hash-identical off/reference tracks were reused; only
+  missing guided motion was measured on CPU. [Metrics and limits](probe_comparison/port_acceptance_20260922_early_review/motion_review.json),
+  [visual review](probe_comparison/port_acceptance_20260922_early_review/landmark_review.jpg).
+  Arm differences do not establish zero influence, but fail intended directional control.
+  Core source/config hashes match; the saved runner was recovered exactly from Git.
+  The original run's full commit is unrecorded. Opening corruption limits quality.
+- **Separate late centered-AMF failure:** the [completed centered-AMF review](probe_runs/wan_centered_pilot_camel_s1/review/REVIEW.md)
   reports about -134 px fence-relative camel displacement in off/forward/reverse arms,
   versus opposing references. Loss and sampler state changed, but motion did not respond
   as intended. This tests only the specified late index-39 intervention, five updates,
@@ -63,14 +77,17 @@ the earlier transformer path limits reference response remains unresolved. Cente
 sharpening, regional support, Huber, and destination NLL are historical experimental
 variants, not adopted replacements for the DiTFlow port.
 
-**Next decision: unresolved.** Available evidence does not select a specific port
-repair or the next bounded motion-transfer comparison. When substantive port work
-resumes, use the entry point and configuration above and propose a bounded comparison
-that distinguishes explicit hypotheses, states the decision it will resolve, and
-sets a budget and stopping condition. Execute within the authorized scope and budget;
-uncertainty alone is not a reason to stall. Historical proposals are not an automatic
-test queue. No experiment or different scientific method is selected or authorized
-by this documentation cleanup.
+**Decision reached:** the existing early-window comparison is complete and ineffective
+for the intended direction test; no missing arm or basic propagation/parity rerun is
+needed. This result is distinct from the late centered-AMF failure.
+
+**Next implementation choice remains unresolved.** Failure alone does not distinguish
+a port defect from target/readout, placement, or strength limitations. Evaluate a
+specific hypothesis using existing captures before selecting a bounded change; do
+not automatically adopt Huber, destination NLL, another layer/schedule, or the historical
+decisive suite. This review selects no replacement method and implements no inference
+change. Any later experiment must state its decision, budget, and stopping condition
+and remain within authorized scope; uncertainty does not require a chain of diagnostics.
 
 Remaining contradictions are preserved with context: the old [I2V target](docs/WAN_RESEARCH_TARGET.md)
 is superseded by current T2V scope; the [acceptance audit](docs/WAN_PORT_ACCEPTANCE.md)

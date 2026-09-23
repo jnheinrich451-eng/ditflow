@@ -1,0 +1,29 @@
+{
+  "name": "wan_lr4_camel_s1",
+  "baseline": "probe_runs/wan_port_acceptance_camel_s1_v2_retry",
+  "baseline_manifest_sha256": "1a40009665eaae7a6a9f2e431a25070f1daece2edde43cdbbd80d24cdffb43ec",
+  "output": "probe_runs/wan_lr4_camel_s1",
+  "hypothesis": "Original AMF has a weak useful reference response; a fourfold latent Adam LR increase improves decoded directional control without unacceptable degradation.",
+  "baseline_lr": [0.002, 0.001],
+  "candidate_lr": [0.008, 0.004],
+  "arms": ["forward", "reverse"],
+  "maximum_new_generations": 2,
+  "cli_args": [
+    "--model", "14b", "--opt_mode", "latent", "--loss_type", "flow",
+    "--flow_loss", "mse", "--guidance_blocks", "20", "--motion_temp", "2",
+    "--guidance_timestep_range", "50", "40", "--optimization_steps", "5",
+    "--scheduler", "unipc", "--flow_shift", "3", "--guidance_scale", "5",
+    "--num_frames", "21", "--height", "480", "--width", "832",
+    "--no_injection", "--low_vram", "--save_format", "mp4"
+  ],
+  "additional_runtime_pins": {"tokenizers": "0.22.2"},
+  "evaluation": {
+    "trajectory_frames": [5, 20],
+    "quality_frames": "all 21, including opening corruption",
+    "measure_separately": ["subject screen displacement", "fence displacement", "subject minus fence displacement"],
+    "accept": "Useful opposite-direction subject motion with acceptable quality: advance to a separately budgeted independent confirmation.",
+    "partial": "Larger credible separation but both still move left: strength affects response, motion-transfer acceptance still fails.",
+    "reject": "No meaningful improvement or substantial degradation: reject this candidate and stop automatic strength escalation.",
+    "inconclusive": "Unresolved measurement uncertainty or incompatible setup: do not accept or infer scientific failure; identify the precise limitation."
+  }
+}
