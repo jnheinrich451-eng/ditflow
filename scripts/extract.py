@@ -157,6 +157,11 @@ def main() -> int:
                     help="recorded in provenance; NOT used for masks in extract-v1")
     ap.add_argument("--pack-only", action="store_true", help="do not run stages, pack caches")
     ap.add_argument("--force", action="store_true", help="re-run every stage")
+    ap.add_argument("--pass-tag", default=None,
+                    help="second-pass mode (C4 noise floor): re-run every stage and write to "
+                         "<out_dir>_<tag>/<clip_id>/; refuses to overwrite an existing tag. "
+                         "Stage caches are scratch and ARE overwritten; pass 1's packed "
+                         "output under <out_dir>/ is untouched")
     ap.add_argument("--config", default="configs/stage_a.yaml")
     ap.add_argument("--config-x", default="configs/extract.yaml")
     args = ap.parse_args()
@@ -182,17 +187,25 @@ def main() -> int:
               "using --fps, both recorded")
 
     digest = sha256(video)
-    out = Path(cfg_x["extract"]["out_dir"]) / clip_id
+    out_root = Path(cfg_x["extract"]["out_dir"])
+    force = args.force
+    if args.pass_tag:
+        out_root = out_root.with_name(f"{out_root.name}_{args.pass_tag}")
+        force = True                               # a second pass must be a real second pass
+        if (out_root / clip_id / "raw.npz").exists():
+            raise SystemExit(f"pass tag {args.pass_tag!r} already exists for {clip_id}: "
+                             f"{out_root / clip_id} — choose a new tag, never overwrite a pass")
+    out = out_root / clip_id
     # the stage caches are keyed by file STEM: refuse to pack a different video's
     # caches under this name (generated videos must get unique file names)
     bprov = Path(cfg["paths"]["cache_dir"]) / clip_id / "provenance.json"
     if bprov.exists():
         prev = json.loads(bprov.read_text(encoding="utf-8")).get("clip_path")
-        if prev and Path(prev).resolve() != video.resolve() and not args.force:
+        if prev and Path(prev).resolve() != video.resolve() and not force:
             raise SystemExit(f"clip id collision: cache '{clip_id}' was built from {prev}, "
                              f"not {video}. Rename the video or pass --force")
     rec = out / "raw.npz"
-    if rec.exists() and not args.force:
+    if rec.exists() and not force:
         with np.load(rec) as z:
             old = json.loads(str(z["provenance_json"])).get("video_sha256")
         if old != digest:
@@ -200,7 +213,7 @@ def main() -> int:
                              "pass --force to re-run every stage on this one")
 
     if not args.pack_only:
-        run_stages(cfg, cfg_x, video, clip_id, args.force)
+        run_stages(cfg, cfg_x, video, clip_id, force)
     d = load(cfg, clip_id)
 
     root = Path(str(cfg["paths"]["drive_root"]))
@@ -227,6 +240,7 @@ def main() -> int:
                   "B_follow_cam": (qc["B"].get("follow_cam") or {}).get("branch_active"),
                   "C": qc["C"].get("gates"), "C5": qc["C5"].get("gates")},
         "seed": "none exposed by stages A-C.5; run-to-run spread is measured by C4",
+        "pass_tag": args.pass_tag,
     }
     raw = pack.build_raw(d, args.fps, json.dumps(prov, default=str))
     der, js = pack.build_derived(raw, cfg_x["derived"])
