@@ -101,6 +101,42 @@ def relative_poses(E) -> np.ndarray:
     return np.linalg.inv(E[:-1]) @ E[1:]
 
 
+def cameractrl_errors(E_gen, E_gt, *, idx=None) -> dict:
+    """CameraCtrl's RotErr / TransErr, as written (He et al., ICLR 2025, Eq. 4-5 and App. D.5);
+    SymphoMotion's CamRotErr / CamTransErr cite this definition and add nothing.
+
+      relative poses   first frame's extrinsic set to identity
+      rescale          s = translation gap between the first two frames, GT / generated
+      RotErr           sum_i arccos((tr(R_gen^i R_gt^iT) - 1) / 2)          radians, SUM over frames
+      TransErr         sum_i || T_gt^i - s T_gen^i ||_2^2                    SQUARED L2, SUM over frames
+
+    Interpretation choices the paper does not state, fixed here: extrinsics are WORLD-TO-CAMERA
+    (COLMAP's and RealEstate10K's storage convention), so T is the w2c translation; relative
+    pose = E_i @ inv(E_0). Inputs are c2w OpenCV like every other function in this module.
+    The first-two-frame rescale is fragile when the camera barely moves between frames 0 and 1
+    (test_cameractrl_rescale_is_fragile); it is reported for literature comparability only.
+    Our primary camera numbers stay camera_errors(..., align="scale_only").
+    """
+    E_gen = np.asarray(E_gen, np.float64)
+    E_gt = np.asarray(E_gt, np.float64)
+    if idx is not None:
+        idx = np.asarray(idx, int)
+        E_gen, E_gt = E_gen[idx], E_gt[idx]
+    W_gen, W_gt = np.linalg.inv(E_gen), np.linalg.inv(E_gt)            # c2w -> w2c
+    W_gen = W_gen @ np.linalg.inv(W_gen[0])[None]                       # first frame = identity
+    W_gt = W_gt @ np.linalg.inv(W_gt[0])[None]
+    t_gen, t_gt = W_gen[:, :3, 3], W_gt[:, :3, 3]
+    gap_gen, gap_gt = np.linalg.norm(t_gen[1] - t_gen[0]), np.linalg.norm(t_gt[1] - t_gt[0])
+    s = float(gap_gt / gap_gen) if gap_gen > 1e-12 else float("nan")
+    rot = np.radians(rot_err_deg(W_gen[:, :3, :3], W_gt[:, :3, :3]))
+    tr = ((t_gt - s * t_gen) ** 2).sum(1)
+    n = len(E_gen)
+    return {"n": int(n), "rescale": s,
+            "RotErr_sum_rad": float(rot.sum()), "TransErr_sum_sq": float(tr.sum()),
+            "RotErr_mean_deg": float(np.degrees(rot).mean()), "TransErr_mean_sq": float(tr.mean()),
+            "rescale_degenerate": bool(not np.isfinite(s))}
+
+
 def camera_errors(E_est, E_gt, *, align: str = "sim3", idx=None) -> dict:
     """All camera numbers for one clip. Both inputs c2w OpenCV, (T,4,4).
 

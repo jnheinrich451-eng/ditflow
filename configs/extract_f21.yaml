@@ -1,0 +1,28 @@
+# extract-v1, 21-frame COMPARISON shape — dated amendment 2026-10-14.
+#
+# Why: CogVideoX DiTFlow outputs 21 frames; the pool shape (extract.yaml) is 24.
+# Generated and reference videos must go through the instrument at the SAME
+# length, so comparison pairs are scored on the reference's first 21 frames
+# (frames 0-20 of the canonical cut: the window DiTFlow actually saw).
+#
+# What is identical to extract.yaml: every stage, pin, gate and threshold
+# (those live in stage_a.yaml / calibration.lock.yaml, untouched), H x W, the
+# derived settings. What differs: canonical.frames and out_dir only. The pool
+# extractions under extract-v1/ (24 frames, Q1 / bands) are not affected.
+#
+# Clip ids must be unique per file stem (stage caches are keyed by stem):
+# the trimmed reference is <clip>__f21.mp4, generated videos carry their row
+# label in the name (<clip>__<target>__<row>__seed<k>.mp4).
+
+extract:
+  schema: extract-v1
+  out_dir: ${paths.drive_root}/extract/extract-v1-f21
+  stages: [A, B, C, C5]
+
+canonical:
+  frames: 21
+  height: 480
+  width: 720
+
+derived:
+  bg_depth_percentiles: [5, 95]

@@ -86,6 +86,24 @@ def load_source(src: Path, n_frames: int) -> tuple[np.ndarray, dict]:
     return frames, meta
 
 
+def cut_window(src: Path, start: int, n: int) -> np.ndarray:
+    """Frames [start, start+n) of a video at its NATIVE rate (stride 1), (n,h,w,3) uint8.
+    Used for method-comparison pairs whose source window is fixed by the method
+    (e.g. mixture-motion-transfer's 33 full-rate frames from t_a). Refuses a short video."""
+    import imageio.v2 as iio
+    rd = iio.get_reader(str(src))
+    frames = []
+    for i, f in enumerate(rd):
+        if i >= start + n:
+            break
+        if i >= start:
+            frames.append(f[..., :3])
+    rd.close()
+    if len(frames) != n:
+        raise SystemExit(f"{src}: frames {start}..{start + n - 1} requested, only {start + len(frames)} exist")
+    return np.stack(frames)
+
+
 def write_lossless(frames: np.ndarray, dst: Path, fps: float) -> None:
     import imageio_ffmpeg
     ff = imageio_ffmpeg.get_ffmpeg_exe()

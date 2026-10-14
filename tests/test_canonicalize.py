@@ -55,6 +55,25 @@ def test_lossless_round_trip():
     assert back.shape == fr.shape and np.array_equal(back, fr)
 
 
+def test_cut_window_takes_the_right_frames():
+    """Frame k of the cut must be source frame start+k (each source frame encodes its index)."""
+    src = np.zeros((40, 72, 128, 3), np.uint8)
+    for i in range(40):
+        src[i, :, : 3 * i + 3] = 255                     # a white bar whose width encodes the index
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "src.mp4"
+        cz.write_lossless(src, p, 30.0)
+        cut = cz.cut_window(p, 4, 21)
+        try:
+            cz.cut_window(p, 30, 21)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("short video was accepted")
+    widths = (cut[:, 0, :, 0] > 127).sum(1)
+    assert cut.shape[0] == 21 and list(widths) == [3 * (4 + k) + 3 for k in range(21)], widths
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
