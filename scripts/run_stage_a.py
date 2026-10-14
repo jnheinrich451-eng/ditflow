@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -75,6 +76,16 @@ def main() -> int:
     print(f"[stage_a] tracks + depth done ({time.time() - t0:.0f}s)")
 
     qc = run_gates(tr, cfg)
+    # A-G2b report-only mode (Q1 handoff §4(b), 2026-10-14). tau_g2b_px is marked
+    # "provisional — pending calibration" in calibration.lock.yaml and refuses fast-motion
+    # and generated clips. EXTRACT_A_G2B_MODE=report keeps the measured value and its
+    # verdict ("pass": False stays False, recorded in qc.json and provenance) but no longer
+    # blocks the bundle. Every other gate stays a hard gate. Default "gate" = unchanged.
+    if os.environ.get("EXTRACT_A_G2B_MODE", "gate") == "report" and "A-G2b" in qc["gates"]:
+        qc["gates"]["A-G2b"]["mode"] = "report_only"
+        qc["a_g2b_report_only"] = True
+        qc["all_pass"] = all(g["pass"] for k, g in qc["gates"].items()
+                             if k != "A-G2b" and g["pass"] is not None)
     # Task 0 (Stage B SKILL §1, human-signed): scale re-gauge frames for the
     # drift model — from the adapter's actual window schedule, additive field.
     qc["window_boundaries"] = window_boundaries(adapter.T, adapter.clip_frames)

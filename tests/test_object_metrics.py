@@ -48,6 +48,7 @@ def test_shift_and_scale_known_answers():
         fake_extract(Path(tmp, "g"), x + 5, 0.5 * root + 7.0)      # 5 px right; half-scale, offset world
         e = om.object_errors(Path(tmp, "r"), Path(tmp, "g"), range(10), range(10), cam_scale=2.0)
     assert abs(e["objmc_px"] - 5.0) < 1e-9                         # image centroid moved 5 px
+    assert e["objmc_motion_px"] < 1e-9                             # ...but a constant offset is not motion
     assert abs(e["box_iou"] - 5 / 15) < 1e-9                       # 10-wide boxes offset by 5: 5/15
     assert e["obj_err3d"] < 1e-9                                   # same motion once scaled; offset cancels
 

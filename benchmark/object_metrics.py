@@ -89,6 +89,14 @@ def object_errors(ref_dir, gen_dir, idx_ref, idx_gen, cam_scale: float) -> dict:
     iou = box_iou(boxes_from_masks(m_g), boxes_from_masks(m_r))
     c_r, c_g = mask_centroids(m_r), mask_centroids(m_g)
     d2 = np.linalg.norm(c_g - c_r, axis=1)
+    # motion-only ObjMC: each path relative to its own first valid frame. MotionCtrl's ObjMC
+    # assumes the generated object starts ON the given trajectory; in transfer to a new subject
+    # in a new scene the start position is set by the new layout, so a constant offset is
+    # placement, not motion. Both are reported.
+    def rel(c):
+        ok0 = np.flatnonzero(np.isfinite(c[:, 0]))
+        return c - c[ok0[0]] if ok0.size else c
+    d2m = np.linalg.norm(rel(c_g) - rel(c_r), axis=1)
 
     X_r, X_g = world_root(der_r)[idx_ref], world_root(der_g)[idx_gen]
     D_r = X_r - X_r[0]                                   # motion only: own frame-0 offset removed
@@ -103,6 +111,7 @@ def object_errors(ref_dir, gen_dir, idx_ref, idx_gen, cam_scale: float) -> dict:
         "box_iou": float(ok(iou).mean()) if ok(iou).size else float("nan"),
         "box_frames_missing": int((~np.isfinite(iou)).sum()),
         "objmc_px": float(ok(d2).mean()) if ok(d2).size else float("nan"),
+        "objmc_motion_px": float(ok(d2m).mean()) if ok(d2m).size else float("nan"),
         "obj_err3d": float(ok(e3).mean()) if ok(e3).size else float("nan"),
         "obj_err3d_final": float(e3[-1]) if np.isfinite(e3[-1]) else float("nan"),
         "ref_path_len_3d": float(np.nansum(np.linalg.norm(np.diff(X_r, axis=0), axis=1)) / zbg),

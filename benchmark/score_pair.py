@@ -15,6 +15,7 @@ Columns
   CC_TransErr_sq_sum  CameraCtrl Eq.5 + App. D.5 (SymphoMotion's CamTransErr): sum of squared L2, first-two-frame rescale
   BoxIoU              SymphoMotion's object metric, from the extractor's subject masks, higher better
   ObjMC_px            MotionCtrl's object metric: mean centroid distance in px (camera-entangled)
+  ObjMC_motion_px     same, each path relative to its own first frame: motion only, not placement
   ObjErr3D            ours: camera-compensated world-frame root error / ref background depth (unitless)
 """
 from __future__ import annotations
@@ -56,7 +57,8 @@ def score(ref: Path, gen: Path, idx_ref, idx_gen) -> dict:
         "ATE_sim3": s3["ate"], "cam_scale": so["scale"],
         "CC_RotErr_rad_sum": cc["RotErr_sum_rad"], "CC_TransErr_sq_sum": cc["TransErr_sum_sq"],
         "CC_rescale": cc["rescale"],
-        "BoxIoU": ob["box_iou"], "ObjMC_px": ob["objmc_px"], "ObjErr3D": ob["obj_err3d"],
+        "BoxIoU": ob["box_iou"], "ObjMC_px": ob["objmc_px"], "ObjMC_motion_px": ob["objmc_motion_px"],
+        "ObjErr3D": ob["obj_err3d"],
         "box_frames_missing": ob["box_frames_missing"], "ref_path_len_3d": ob["ref_path_len_3d"],
     }
 
