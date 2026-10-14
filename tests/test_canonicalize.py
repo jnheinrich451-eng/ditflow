@@ -74,6 +74,20 @@ def test_cut_window_takes_the_right_frames():
     assert cut.shape[0] == 21 and list(widths) == [3 * (4 + k) + 3 for k in range(21)], widths
 
 
+def test_full_frame_resize_lands_on_reference_geometry():
+    """Source 1280x720 with a marker; route A = reference (crop then resize), route B = Wan-style
+    full-frame resize to 832x480 then from_full_frame_resize. The marker must land in the same place."""
+    from PIL import Image
+    src = np.zeros((1, 720, 1280, 3), np.uint8)
+    src[0, 300:360, 600:660] = 255                                # 60x60 white square
+    a, rec = cz.canonicalize_frames(src, H, W)
+    wan = np.asarray(Image.fromarray(src[0]).resize((832, 480), Image.LANCZOS))[None]
+    b, rb = cz.from_full_frame_resize(wan, (720, 1280), rec["crop_ltrb"], H, W)
+    assert rb["crop_in_generated"] == [65.0, 0.0, 767.0, 480.0], rb
+    ca = np.argwhere(a[0, :, :, 0] > 127).mean(0); cb = np.argwhere(b[0, :, :, 0] > 127).mean(0)
+    assert np.abs(ca - cb).max() < 1.0, (ca, cb)                  # same place within a pixel
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

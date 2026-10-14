@@ -104,6 +104,25 @@ def cut_window(src: Path, start: int, n: int) -> np.ndarray:
     return np.stack(frames)
 
 
+def from_full_frame_resize(frames: np.ndarray, src_hw, crop_ltrb, H: int, W: int):
+    """Generated frames that are the WHOLE source frame resized to their own size (no crop),
+    e.g. mixture-motion-transfer's Wan 832x480 from a 1280x720 source -> the reference's
+    canonical crop. `crop_ltrb` is the reference's crop box in SOURCE pixels (its .json);
+    it is scaled into the generated frame, cut, and resized to W x H. For 1280x720 -> 832x480
+    and crop x 100..1180 this is x 65..767 exactly, and the composite source->canonical scale
+    is 2/3 on both axes: the same geometry as the reference."""
+    sh, sw = src_hw
+    T, h, w, _ = frames.shape
+    l, t, r, b = crop_ltrb
+    box = (l * w / sw, t * h / sh, r * w / sw, b * h / sh)
+    out = np.empty((T, H, W, 3), np.uint8)
+    for i in range(T):
+        out[i] = np.asarray(Image.fromarray(frames[i]).crop(tuple(int(round(v)) for v in box))
+                            .resize((W, H), Image.LANCZOS))
+    return out, {"generated_hw": [h, w], "source_hw": [sh, sw], "crop_in_generated": [round(v, 3) for v in box],
+                 "rule": "full-frame resize upstream; reference crop scaled into the generated frame"}
+
+
 def write_lossless(frames: np.ndarray, dst: Path, fps: float) -> None:
     import imageio_ffmpeg
     ff = imageio_ffmpeg.get_ffmpeg_exe()
