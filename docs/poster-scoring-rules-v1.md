@@ -1,5 +1,22 @@
 # Poster scoring rules — v1 (the grader's rules, in writing)
 
+> **Amendment 2026-10-17 (the reviewer's plan `plan_experiment_v1.md`, D2/D3; these rules now serve the
+> thesis tables, not only the poster).**
+> 1. **Method videos of record = `m3_batch_export` (2026-10-14):** A3 `obj_ow0.75_sm_sky` for vehicles,
+>    `sm_sky` for humans; A0 = no guidance. They replace the pre-batch `ours` row, which held one control
+>    (265.2.005 vehicle `_coff`) and one off-record run (370 plain). Pre-batch files are moved to
+>    `runs/superseded_pre_batch/`, their rows to `poster_pairs_pre_batch.csv`; nothing is deleted.
+>    `ours_nodyn` (265.2.005 human) is an ablation label, never a table row.
+> 2. **Seed rule (D3): seed 0 for every method**, including `ours` and `ours_noguide`. This supersedes §3's
+>    per-pair seeds and the A0/A3 seed-mismatch caveat (both arms now exist at seed 0). Seed 1 stays scored,
+>    for the per-pair seed spread in the thesis only.
+> 3. **Two medians per row (D2):** (A) on ours' subset — the gated pairs where `ours` is scored, every row
+>    restricted to them; (B) on each row's own pairs, n printed. §4's single-table rule is superseded.
+> 4. **Open provenance item:** `404.1.004 / A0 / seed 0` has no `text_tokens` / corrector record in the
+>    export index (every other run: 512 tokens). Confirm it postdates the 2026-10-13 padding fix before its
+>    numbers are cited.
+> 5. §6's table is the dated record of the pre-batch poster; it is not reproduced by the new rules.
+
 Written 2026-10-15. Applies to the poster's "What we found" table and chart. Anyone recomputing
 the table from `poster_pairs.csv` applies exactly these rules; the result must equal §6.
 
