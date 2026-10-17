@@ -16,6 +16,25 @@
 >    export index (every other run: 512 tokens). Confirm it postdates the 2026-10-13 padding fix before its
 >    numbers are cited.
 > 5. §6's table is the dated record of the pre-batch poster; it is not reproduced by the new rules.
+> 6. **Which MiraData clips have SMM and MOFT (rule, 2026-10-17):** SMM and MOFT run on **every row of
+>    `benchmark/pairs_manifest.csv` whose `camera_gate_pass` is True**, with that row's window and prompt —
+>    the same rows, windows and prompts as DiTFlow and the CogVideoX no-guidance row. Today that is the
+>    method's pair table: 5 pairs on 4 source clips (265.2.003 vehicle; 265.2.005 vehicle and human;
+>    370.1.008 human; 404.1.004 vehicle). 035.1.003 is excluded by the camera gate (`RUN_UNGATED = False`).
+>    The rows were fixed by the method's frozen Stage II handoffs, before any baseline output existed; no
+>    baseline result chose them. They are **not** drawn from the 10 MiraData clips, which are not yet selected:
+>    when the census appends gated rows, SMM and MOFT run on them under this same rule.
+>    Note: of the 4 clips only 265.2.005 is in `benchmark/miradata.csv`; 265.2.003, 370.1.008 and 404.1.004 are
+>    neighbouring cuts of the same source videos (the manifest has 370.1.009 and 404.1.006).
+> 7. **Standard motion and appearance columns (2026-10-17)**, computed on the same aligned 21 frames, same
+>    rules (gated pairs, seed 0, tables A and B), in `poster_table_standard.md`:
+>    - **MF**, **direction cosine**: `benchmark/collect.py`'s `motion_fidelity` / `direction_cosine` with
+>      CoTracker3 (grid 55): the DAVIS sheet's definitions. Whole-frame, so camera and subject motion MIXED;
+>      read beside the decomposed columns, never instead of them.
+>    - **IQ**: `collect.py`'s CLIPScore (frames vs the pair's prompt, ViT-B/32): DiTFlow's IQ. Near-saturated;
+>      no claim on differences < 0.01.
+>    - **MUSIQ**: no-reference image quality per frame (pyiqa `musiq`, KonIQ), mean over 21 frames. The
+>      reference is scored as the ceiling. Measures picture quality only; says nothing about motion.
 
 Written 2026-10-15. Applies to the poster's "What we found" table and chart. Anyone recomputing
 the table from `poster_pairs.csv` applies exactly these rules; the result must equal §6.
