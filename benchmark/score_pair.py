@@ -42,15 +42,35 @@ def parse_idx(s: str | None, n: int) -> np.ndarray:
 
 
 def score(ref: Path, gen: Path, idx_ref, idx_gen) -> dict:
+    """v1, the scoring of record for experiment_pairs.csv (sealed 8dd54f6f...). Unchanged."""
+    return _score(ref, gen, idx_ref, idx_gen, proper=False)
+
+
+def score_v2(ref: Path, gen: Path, idx_ref, idx_gen) -> dict:
+    """v2 (grader brief v2, 2026-10-20): as v1, but every fitted alignment must be a proper similarity
+    (scale > 0, det R = +1; camera_errors(proper=True)). Metrics that use a fitted alignment:
+      ObjErr3D   uses the scale-only s (cam_scale): blank when that fit is not proper ('unalignable')
+      ATE_sim3   uses Umeyama's sim(3), proper by construction; blank only if it were not
+      CC_TransErr uses CameraCtrl's own rescale, a ratio of norms (>= 0): unchanged
+    Alignment-free, identical to v1 by construction: CamRotErr_deg (R_a = I under scale_only; both
+    trajectories are only re-expressed relative to their own frame 0), RPE_rot_deg, CC_RotErr_rad_sum.
+    Camera-free (2-D subject masks): BoxIoU, ObjMC_px, ObjMC_motion_px."""
+    return _score(ref, gen, idx_ref, idx_gen, proper=True)
+
+
+def _score(ref: Path, gen: Path, idx_ref, idx_gen, proper: bool) -> dict:
     with np.load(ref / "raw.npz") as z:
         E_r = z["cam_extrinsics"].astype(np.float64)
     with np.load(gen / "raw.npz") as z:
         E_g = z["cam_extrinsics"].astype(np.float64)
     Er, Eg = cm.to_camera0(E_r[idx_ref]), cm.to_camera0(E_g[idx_gen])
-    so = cm.camera_errors(Eg, Er, align="scale_only")
-    s3 = cm.camera_errors(Eg, Er, align="sim3")
+    so = cm.camera_errors(Eg, Er, align="scale_only", proper=proper)
+    s3 = cm.camera_errors(Eg, Er, align="sim3", proper=proper)
     cc = cm.cameractrl_errors(Eg, Er)
-    ob = om.object_errors(ref, gen, idx_ref, idx_gen, cam_scale=so["scale"])
+    ob = om.object_errors(ref, gen, idx_ref, idx_gen, cam_scale=so["scale"])   # NaN scale -> NaN ObjErr3D
+    extra = {} if not proper else {
+        "cam_scale_fit": so["scale_fit"], "align_status": "ok" if so["alignable"] else "unalignable",
+        "sim3_proper": s3["alignable"]}
     return {
         "n_frames": so["n"],
         "CamRotErr_deg": so["rot_mean_deg"], "RPE_rot_deg": so["rpe_rot_deg"],
@@ -60,7 +80,7 @@ def score(ref: Path, gen: Path, idx_ref, idx_gen) -> dict:
         "BoxIoU": ob["box_iou"], "ObjMC_px": ob["objmc_px"], "ObjMC_motion_px": ob["objmc_motion_px"],
         "ObjErr3D": ob["obj_err3d"],
         "box_frames_missing": ob["box_frames_missing"], "ref_path_len_3d": ob["ref_path_len_3d"],
-    }
+    } | extra
 
 
 def main():
