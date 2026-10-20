@@ -1,0 +1,33 @@
+clip,pool,category,label,reason
+000000000064.3.002,miradata,human,in_contact,
+000000000119.5.007,miradata,human,contact_out_of_view,the man is walking on the road
+000000000130.0.015,miradata,human,in_contact,
+000000000191.6.037,miradata,human,contact_out_of_view,the man is walking on the road
+000000000200.1.006,miradata,human,in_contact,
+000000000217.0.006,miradata,vehicle,in_contact,
+000000000221.7.011,miradata,human,in_contact,
+000000000222.4.003,miradata,human,contact_out_of_view,the man rides a horse walking on the mud road
+000000000252.1.018,miradata,vehicle,in_contact,
+000000000252.2.007,miradata,human,in_contact,
+000000000256.3.010,miradata,human,in_contact,
+000000000265.4.002,miradata,human,contact_out_of_view,
+000000000299.1.005,miradata,vehicle,not_in_contact,the white car is flying on the sky
+000000000362.2.005,miradata,human,in_contact,
+000000000370.1.009,miradata,human,contact_out_of_view,the man is walking on the road
+000000000391.0.016,miradata,human,contact_out_of_view,the man is walking on the road
+000000000396.3.002,miradata,vehicle,in_contact,
+000000000404.1.006,miradata,human,in_contact,
+000000000431.5.009,miradata,human,in_contact,
+bmx-bumps,davis,human,in_contact,
+breakdance,davis,human,in_contact,
+breakdance-flare,davis,human,in_contact,
+camel,davis,human,in_contact,
+dancing,davis,human,in_contact,
+disc-jockey,davis,human,not_in_contact,"actually it should be two men on the ground, but it is not trajectory movement, and no grounds in the whole scene"
+dogs-scale,davis,human,in_contact,
+elephant,davis,human,in_contact,
+goat,davis,human,in_contact,
+gold-fish,davis,human,not_in_contact,"fish in a water tank, floating"
+hockey,davis,human,in_contact,
+horsejump-high,davis,human,in_contact,
+kite-walk,davis,human,in_contact,

@@ -1,0 +1,1538 @@
+[
+ {
+  "pair": "000000000191.6.037/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000191.6.037.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    171.05055236816406,
+    0.0,
+    125.94358825683594
+   ],
+   [
+    0.0,
+    322.4488525390625,
+    128.55191040039062
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    684.2022094726562,
+    0.0,
+    503.77435302734375
+   ],
+   [
+    0.0,
+    1289.79541015625,
+    514.2076416015625
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    555.9142951965332,
+    0.0,
+    409.3166618347168
+   ],
+   [
+    0.0,
+    604.5915985107422,
+    241.03483200073242
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000191.6.037.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000200.1.006/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000200.1.006.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    186.4164276123047,
+    0.0,
+    128.03016662597656
+   ],
+   [
+    0.0,
+    343.3653869628906,
+    128.10968017578125
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    745.6657104492188,
+    0.0,
+    512.1206665039062
+   ],
+   [
+    0.0,
+    1373.4615478515625,
+    512.438720703125
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    605.8533897399902,
+    0.0,
+    416.0980415344238
+   ],
+   [
+    0.0,
+    643.8101005554199,
+    240.20565032958984
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000200.1.006.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000217.0.006/vehicle",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000217.0.006.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    153.86448669433594,
+    0.0,
+    127.93791198730469
+   ],
+   [
+    0.0,
+    307.9950256347656,
+    129.1473846435547
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    615.4579467773438,
+    0.0,
+    511.75164794921875
+   ],
+   [
+    0.0,
+    1231.9801025390625,
+    516.5895385742188
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    500.0595817565918,
+    0.0,
+    415.79821395874023
+   ],
+   [
+    0.0,
+    577.4906730651855,
+    242.15134620666504
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000217.0.006.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000221.7.011/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000221.7.011.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    166.8622283935547,
+    0.0,
+    126.68994903564453
+   ],
+   [
+    0.0,
+    302.9576721191406,
+    126.87429809570312
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    667.4489135742188,
+    0.0,
+    506.7597961425781
+   ],
+   [
+    0.0,
+    1211.8306884765625,
+    507.4971923828125
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    542.3022422790527,
+    0.0,
+    411.7423343658447
+   ],
+   [
+    0.0,
+    568.0456352233887,
+    237.88930892944336
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000221.7.011.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000252.1.018/vehicle",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000252.1.018.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    148.37228393554688,
+    0.0,
+    126.09195709228516
+   ],
+   [
+    0.0,
+    302.5079345703125,
+    127.9167251586914
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    593.4891357421875,
+    0.0,
+    504.3678283691406
+   ],
+   [
+    0.0,
+    1210.03173828125,
+    511.6669006347656
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    482.20992279052734,
+    0.0,
+    409.79886054992676
+   ],
+   [
+    0.0,
+    567.2023773193359,
+    239.8438596725464
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000252.1.018.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000252.2.007/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000252.2.007.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    141.7635040283203,
+    0.0,
+    124.44935607910156
+   ],
+   [
+    0.0,
+    240.6552276611328,
+    129.83644104003906
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    567.0540161132812,
+    0.0,
+    497.79742431640625
+   ],
+   [
+    0.0,
+    962.6209106445312,
+    519.3457641601562
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    460.731388092041,
+    0.0,
+    404.4604072570801
+   ],
+   [
+    0.0,
+    451.228551864624,
+    243.44332695007324
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000252.2.007.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000256.3.010/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000256.3.010.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    153.38833618164062,
+    0.0,
+    126.97232818603516
+   ],
+   [
+    0.0,
+    293.2132568359375,
+    127.88365936279297
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    613.5533447265625,
+    0.0,
+    507.8893127441406
+   ],
+   [
+    0.0,
+    1172.85302734375,
+    511.5346374511719
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    498.51209259033203,
+    0.0,
+    412.66006660461426
+   ],
+   [
+    0.0,
+    549.7748565673828,
+    239.78186130523682
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000256.3.010.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000265.4.002/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000265.4.002.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    155.5098876953125,
+    0.0,
+    127.50704956054688
+   ],
+   [
+    0.0,
+    242.14051818847656,
+    127.49152374267578
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    622.03955078125,
+    0.0,
+    510.0281982421875
+   ],
+   [
+    0.0,
+    968.5620727539062,
+    509.9660949707031
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    505.4071350097656,
+    0.0,
+    414.39791107177734
+   ],
+   [
+    0.0,
+    454.01347160339355,
+    239.0466070175171
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000265.4.002.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000362.2.005/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000362.2.005.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    157.29696655273438,
+    0.0,
+    127.28775787353516
+   ],
+   [
+    0.0,
+    273.7408447265625,
+    127.59996795654297
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    629.1878662109375,
+    0.0,
+    509.1510314941406
+   ],
+   [
+    0.0,
+    1094.96337890625,
+    510.3998718261719
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    511.2151412963867,
+    0.0,
+    413.68521308898926
+   ],
+   [
+    0.0,
+    513.2640838623047,
+    239.24993991851807
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000362.2.005.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000391.0.016/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000391.0.016.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    144.17926025390625,
+    0.0,
+    128.40170288085938
+   ],
+   [
+    0.0,
+    264.6171875,
+    127.4892807006836
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    576.717041015625,
+    0.0,
+    513.6068115234375
+   ],
+   [
+    0.0,
+    1058.46875,
+    509.9571228027344
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    468.5825958251953,
+    0.0,
+    417.30553436279297
+   ],
+   [
+    0.0,
+    496.1572265625,
+    239.04240131378174
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000391.0.016.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000396.3.002/vehicle",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000396.3.002.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    141.2069854736328,
+    0.0,
+    127.60009002685547
+   ],
+   [
+    0.0,
+    265.91851806640625,
+    126.2037124633789
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    564.8279418945312,
+    0.0,
+    510.4003601074219
+   ],
+   [
+    0.0,
+    1063.674072265625,
+    504.8148498535156
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    458.92270278930664,
+    0.0,
+    414.7002925872803
+   ],
+   [
+    0.0,
+    498.5972213745117,
+    236.63196086883545
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000396.3.002.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000404.1.006/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000404.1.006.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    162.75587463378906,
+    0.0,
+    128.1887969970703
+   ],
+   [
+    0.0,
+    297.1969299316406,
+    124.62124633789062
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    651.0234985351562,
+    0.0,
+    512.7551879882812
+   ],
+   [
+    0.0,
+    1188.7877197265625,
+    498.4849853515625
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    528.9565925598145,
+    0.0,
+    416.6135902404785
+   ],
+   [
+    0.0,
+    557.2442436218262,
+    233.66483688354492
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000404.1.006.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "000000000431.5.009/human",
+  "pool": "miradata",
+  "stage_a_clip_path": "/content/data/experiment-testset/miradata/000000000431.5.009.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    148.2201385498047,
+    0.0,
+    126.93701934814453
+   ],
+   [
+    0.0,
+    258.74114990234375,
+    127.09188079833984
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    592.8805541992188,
+    0.0,
+    507.7480773925781
+   ],
+   [
+    0.0,
+    1034.964599609375,
+    508.3675231933594
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    481.71545028686523,
+    0.0,
+    412.5453128814697
+   ],
+   [
+    0.0,
+    485.13965606689453,
+    238.2972764968872
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/miradata/000000000431.5.009.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "bmx-bumps/human",
+  "pool": "davis",
+  "stage_a_clip_path": "/content/data/experiment-testset/DAVIS/bmx-bumps.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    517.2172241210938,
+    0.0,
+    135.63626098632812
+   ],
+   [
+    0.0,
+    797.2310180664062,
+    126.3406982421875
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    2068.868896484375,
+    0.0,
+    542.5450439453125
+   ],
+   [
+    0.0,
+    3188.924072265625,
+    505.36279296875
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    1680.9559783935547,
+    0.0,
+    440.8178482055664
+   ],
+   [
+    0.0,
+    1494.8081588745117,
+    236.88880920410156
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/DAVIS/bmx-bumps.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "camel/human",
+  "pool": "davis",
+  "stage_a_clip_path": "/content/data/experiment-testset/DAVIS/camel.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    337.2566833496094,
+    0.0,
+    128.56643676757812
+   ],
+   [
+    0.0,
+    578.415283203125,
+    125.83035278320312
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    1349.0267333984375,
+    0.0,
+    514.2657470703125
+   ],
+   [
+    0.0,
+    2313.6611328125,
+    503.3214111328125
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    1096.0842208862305,
+    0.0,
+    417.8409194946289
+   ],
+   [
+    0.0,
+    1084.5286560058594,
+    235.93191146850586
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/DAVIS/camel.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ },
+ {
+  "pair": "horsejump-high/human",
+  "pool": "davis",
+  "stage_a_clip_path": "/content/data/experiment-testset/DAVIS/horsejump-high.mp4",
+  "stage_a_frames": 24,
+  "stage_a_grid": [
+   256,
+   256
+  ],
+  "K_a": [
+   [
+    180.53448486328125,
+    0.0,
+    125.48796844482422
+   ],
+   [
+    0.0,
+    305.9561462402344,
+    127.75972747802734
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "provenance_keys": [
+   "checkpoint",
+   "clip_frames_window",
+   "clip_id",
+   "clip_path",
+   "config_hash",
+   "conventions",
+   "depth_stride",
+   "dtype",
+   "env",
+   "frames",
+   "geometry_source",
+   "gpu",
+   "model_commit",
+   "native_hw",
+   "peak_vram_gb",
+   "process_hw",
+   "resize_factors",
+   "runtime_s",
+   "x0_window_stitch"
+  ],
+  "K_1024": [
+   [
+    722.137939453125,
+    0.0,
+    501.9518737792969
+   ],
+   [
+    0.0,
+    1223.8245849609375,
+    511.0389099121094
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "K_wan": [
+   [
+    586.7370758056641,
+    0.0,
+    407.8358974456787
+   ],
+   [
+    0.0,
+    573.6677742004395,
+    239.54948902130127
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "stage_a_file_present": false,
+  "stage_a_file_is_the_cut": true,
+  "stage_a_file_wh": [
+   720,
+   480
+  ],
+  "cut_file": "/content/data/videos/DAVIS/horsejump-high.mp4",
+  "cut_wh": [
+   720,
+   480
+  ],
+  "cut_frames": 24,
+  "cut_sha256_matches_record": true,
+  "mapping_rule": "(a) whole cut <-> whole Wan frame: u_cut = u_wan * 720/832, v_cut = v_wan; K_cut = diag(720/832, 1, 1) K_wan"
+ }
+]
