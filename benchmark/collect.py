@@ -320,6 +320,10 @@ def main():
     ap.add_argument("--grid-size", type=int, default=55, help="DiTFlow uses 55")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, help="score at most N cells then stop")
+    ap.add_argument("--gen-offset", type=int, default=0,
+                    help="drop this many leading generated frames before pairing with the reference "
+                         "(CogVideoX: 6 latents decode to 24 frames, frames 0-3 = reference frame 0 -> use 3). "
+                         "Applied only when the generated video is longer than the reference; recorded per row")
     ap.add_argument("--control", choices=["c1"],
                     help="score a control row instead of the generated videos. "
                          "c1 = reference frame 0 held for the whole clip -- the "
@@ -430,6 +434,8 @@ def main():
             print(f"    skipped: {type(e).__name__}: {e}")
             continue
 
+        if args.gen_offset and len(gen) >= len(ref) + args.gen_offset:
+            gen = gen[args.gen_offset:args.gen_offset + len(ref)]   # frame i <-> reference frame i
         if args.control == "c1":
             # The degenerate video: nothing moves. Scored through the identical
             # path as every method, so the comparison is like for like.
@@ -445,6 +451,7 @@ def main():
             "prompt_id": meta["prompt_id"], "config": meta["config"],
             "seed": meta["seed"], "prompt": row["prompt"],
             "elapsed_s": meta.get("elapsed_s"),
+            "gen_offset": args.gen_offset,
         }
         # Only compute what is missing. A second pass adding masked columns
         # would otherwise redo the two unmasked tracker calls -- the most

@@ -137,7 +137,7 @@ def cameractrl_errors(E_gen, E_gt, *, idx=None) -> dict:
             "rescale_degenerate": bool(not np.isfinite(s))}
 
 
-def camera_errors(E_est, E_gt, *, align: str = "sim3", idx=None) -> dict:
+def camera_errors(E_est, E_gt, *, align: str = "sim3", idx=None, proper: bool = False) -> dict:
     """All camera numbers for one clip. Both inputs c2w OpenCV, (T,4,4).
 
     align: "sim3" (default; falls back to "rot_only" with a flag if degenerate),
@@ -146,6 +146,13 @@ def camera_errors(E_est, E_gt, *, align: str = "sim3", idx=None) -> dict:
            when a free R_a would be unconstrained by a near-linear path),
            "rot_only", or "none".
     idx:   optional frame indices applied to BOTH trajectories (frame matching).
+    proper: v2 (grader brief v2, 2026-10-20). The fitted map must be a proper similarity,
+           scale > 0 and det R = +1. In v1 (proper=False) scale_only's least-squares s has no
+           sign constraint: s < 0 is a point reflection (det(sI) = s^3 < 0) that maps a camera
+           moving the opposite way onto the reference. With proper=True such a fit is refused:
+           'alignable' is False, 'scale' is NaN and every translation output is NaN. The rotation
+           outputs never use s and are unchanged. Umeyama's sim(3) is proper by construction,
+           s = (d1 + d2 +/- d3) / var >= 0 with det R = +1. 'scale_fit' always holds the unconstrained s.
     """
     E_est = np.asarray(E_est, np.float64)
     E_gt = np.asarray(E_gt, np.float64)
@@ -176,6 +183,12 @@ def camera_errors(E_est, E_gt, *, align: str = "sim3", idx=None) -> dict:
     elif used != "sim3":
         raise ValueError(f"align must be sim3|scale_only|rot_only|none, got {align!r}")
 
+    s_fit, alignable = float(s), True
+    if proper:
+        alignable = bool(np.isfinite(s) and s > 0 and np.linalg.det(R_a) > 0)
+        if not alignable:
+            s = float("nan")                       # no valid alignment: translation outputs become NaN
+
     c_al = (s * (R_a @ c_est.T)).T + t_a
     R_al = R_a[None] @ R_est
     d = np.linalg.norm(c_al - c_gt, axis=1)
@@ -187,7 +200,7 @@ def camera_errors(E_est, E_gt, *, align: str = "sim3", idx=None) -> dict:
     rpe_tr = np.linalg.norm(s * D_est[:, :3, 3] - D_gt[:, :3, 3], axis=1)
 
     return {
-        "n": int(n), "align_used": used, "scale": float(s),
+        "n": int(n), "align_used": used, "scale": float(s), "scale_fit": s_fit, "alignable": alignable,
         "ate": float(d.mean()),
         "rot_mean_deg": float(th.mean()), "rot_sum_deg": float(th.sum()),
         "trans_mean": float(d.mean()), "trans_sum": float(d.sum()),
